@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import gradio as gr
 from dotenv import load_dotenv
+import requests
 
 from ingestion import DocumentProcessor
 from agent import SecureDocAgent
@@ -16,6 +17,25 @@ load_dotenv()
 
 BASE_SESSIONS_DIR = Path("user_sessions")
 BASE_SESSIONS_DIR.mkdir(exist_ok=True)
+
+AUDIT_TEMPLATES = {
+    "Custom (Type your own)": {
+        "query": "Extract all clauses related to...",
+        "framework": "The contract must comply with..."
+    },
+    "RBI Digital Lending (2025-26)": {
+        "query": "Extract clauses related to Default Loss Guarantee (DLG), Cooling-off periods, APR disclosure, and Data Privacy/Third-party sharing.",
+        "framework": "1. DLG must not exceed 5%. 2. Cooling-off period must be min 3 days for loans > 7 days. 3. APR must be disclosed in the KFS. 4. Data cannot be shared without explicit, revocable consent."
+    },
+    "GST Input Tax Credit (Section 16/17)": {
+        "query": "Extract the vendor GSTIN, invoice date, and the nature of goods/services provided.",
+        "framework": "1. Verify if the item falls under Blocked Credits (Section 17(5)) like motor vehicles or food. 2. Ensure the invoice is not older than the filing deadline. 3. Flag any missing state-specific tax splits (CGST/SGST/IGST)."
+    },
+    "Corporate Lease Risk Scan": {
+        "query": "Extract the Force Majeure clause, the Termination notice period, and the Sub-letting permissions.",
+        "framework": "1. Force Majeure must explicitly include 'Pandemics' or 'Epidemics'. 2. Termination notice for the Lessee must not exceed 60 days. 3. Sub-letting must be prohibited without prior written consent."
+    }
+}
 
 def get_session_paths(session_hash: str):
     session_dir = BASE_SESSIONS_DIR / session_hash
@@ -178,6 +198,8 @@ with gr.Blocks(title="Secure Doc-Intelligence", theme=custom_theme) as app:
                     
                     audit_filter = gr.Dropdown(label="Target Contract to Audit", choices=["All Documents"], value="All Documents")
                     
+
+
                     query_input = gr.Textbox(
                         label="Step 1: What should the Researcher Agent extract?",
                         placeholder="e.g., Extract all clauses related to Default Loss Guarantee, liability, and data privacy."
