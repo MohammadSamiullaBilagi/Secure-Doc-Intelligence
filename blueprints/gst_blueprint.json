@@ -1,0 +1,27 @@
+{
+    "blueprint_id": "GST_CA_SCAN_2026_V1",
+    "name": "Comprehensive GST & Vendor Compliance Audit (2026)",
+    "description": "Standard CA firm audit for Input Tax Credit (ITC) eligibility, Blocked Credits under Sec 17(5), and MSME payment compliance.",
+    "checks": [
+        {
+            "check_id": "GST_01_FORMAT",
+            "focus": "Extract the Vendor GSTIN, Purchaser GSTIN, and the Invoice Date.",
+            "rule": "Both GSTINs must be exactly 15 alphanumeric characters. The invoice date must be clearly stated. Flag if any are missing or invalid."
+        },
+        {
+            "check_id": "GST_02_BLOCKED_CREDIT",
+            "focus": "Extract the exact nature of the goods or services provided in the invoice or contract.",
+            "rule": "Evaluate if the items fall under Blocked Credits (Section 17(5) of CGST Act). Flag as a severe violation if the goods include: motor vehicles for passenger transport, food and beverages, outdoor catering, beauty treatment, health services, cosmetic surgery, or membership of a club/health/fitness centre."
+        },
+        {
+            "check_id": "GST_03_E_INVOICE",
+            "focus": "Extract the Invoice Reference Number (IRN) and look for the presence of a QR code.",
+            "rule": "For B2B transactions, an IRN (64-character hash) and QR code are mandatory if the vendor's turnover exceeds the mandate. If neither an IRN nor QR code is mentioned on the invoice, flag this as a potential e-invoicing compliance risk."
+        },
+        {
+            "check_id": "MSME_04_PAYMENT_TERMS",
+            "focus": "Extract the payment terms, specifically the number of days within which payment must be made to the vendor.",
+            "rule": "Under Section 43B(h) of the Income Tax Act (impacting audit), payments to Micro/Small enterprises must be made within 45 days (if a written agreement exists) or 15 days (if no agreement). If the stated payment terms exceed 45 days, flag it as a violation."
+        }
+    ]
+}

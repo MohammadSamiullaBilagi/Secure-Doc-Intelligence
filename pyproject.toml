@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "apscheduler[asyncio]>=3.11.2",
     "chromadb>=1.5.1",
     "fpdf2>=2.8.6",
     "gradio>=6.6.0",
@@ -12,10 +13,13 @@ dependencies = [
     "langchain-community>=0.4.1",
     "langchain-openai>=1.1.10",
     "langgraph>=1.0.9",
+    "langgraph-checkpoint-sqlite>=3.0.3",
     "pillow>=12.1.1",
     "pydantic>=2.12.5",
     "pymupdf>=1.27.1",
     "pytesseract>=0.3.13",
+    "pytest>=9.0.2",
     "python-dotenv>=1.2.1",
+    "reportlab>=4.4.10",
     "requests>=2.32.5",
 ]
