@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: legal_ai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/legal_ai
+      ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - user_data:/app/user_sessions
+      - global_vectors:/app/global_vector_db
+    command: >
+      sh -c "alembic upgrade head &&
+             gunicorn main:app
+             --worker-class uvicorn.workers.UvicornWorker
+             --workers 1
+             --bind 0.0.0.0:8000
+             --timeout 300
+             --graceful-timeout 30"
+
+volumes:
+  pgdata:
+  user_data:
+  global_vectors:

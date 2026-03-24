@@ -5,6 +5,7 @@ from pathlib import Path
 from config import settings
 from Database.database import SessionLocal
 from repositories.session_repository import SessionRepository
+from services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -18,19 +19,17 @@ class CleanupService:
         
         try:
             expired_sessions = repo.get_expired_sessions(settings.session_ttl_hours)
-            
+            storage = get_storage()
+
             for session in expired_sessions:
-                session_dir = Path(settings.user_sessions_dir) / session.session_hash
-                
-                # Disk Cleanup
-                if session_dir.exists():
-                    try:
-                        shutil.rmtree(session_dir)
-                        logger.info(f"Wiped disk data for session: {session.session_hash}")
-                    except Exception as e:
-                        logger.error(f"Failed to delete directory {session_dir}: {e}")
-                        continue # Skip DB update if disk wipe fails
-                
+                # Storage cleanup (handles both local and S3)
+                try:
+                    storage.delete_prefix(session.session_hash)
+                    logger.info(f"Wiped storage data for session: {session.session_hash}")
+                except Exception as e:
+                    logger.error(f"Failed to delete storage for {session.session_hash}: {e}")
+                    continue  # Skip DB update if storage wipe fails
+
                 # DB Cleanup
                 repo.mark_deleted(session.session_hash)
                 

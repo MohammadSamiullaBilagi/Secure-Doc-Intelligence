@@ -7,6 +7,56 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
 
+# Environment / secrets
 .env
+.env.production
+.env.local
+
+# Databases (local dev — production uses Cloud SQL)
+*.db
+*.sqlite3
+
+# PDF files (user uploads, test files, generated reports)
+*.pdf
+
+# User session data (runtime)
+user_sessions/
+
+# ChromaDB vector stores (rebuilt via python ingestion.py)
+global_vector_db/
+
+# Test data folders
+test_folder/
+test_gstr_pdfs/
+test_ocr_db/
+test_vector_db_v3/
+
+# Logs
+*.log
+uvicorn_debug.log
+
+# Notes, planning, text files
+*.txt
+*.resolved
+Issues/
+dns issue/
+lovable folder/
+
+# Images / screenshots
+*.png
+*.jpg
+*.jpeg
+
+# Claude Code internals
+.claude/
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Keep these markdown files (override *.md exclusion is not needed
+# since we don't exclude *.md globally — only specific folders above)

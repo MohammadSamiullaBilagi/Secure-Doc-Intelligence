@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_ASMT_10",
+  "name": "ASMT-10 GST Scrutiny Notice Analysis",
+  "description": "Extracts key data from GST ASMT-10 scrutiny notices for drafting a formal reply.",
+  "checks": [
+    {
+      "check_id": "NASMT_01",
+      "focus": "Extract GSTIN, legal name, and tax period under scrutiny",
+      "rule": "Identify the taxpayer's GSTIN, legal name, and the specific tax period (month/quarter/year) covered by this scrutiny notice."
+    },
+    {
+      "check_id": "NASMT_02",
+      "focus": "Identify discrepancies flagged by the officer",
+      "rule": "List all specific discrepancies mentioned — between GSTR-1 and GSTR-3B, ITC mismatches, turnover differences, etc."
+    },
+    {
+      "check_id": "NASMT_03",
+      "focus": "Extract specific questions or information sought",
+      "rule": "List all specific questions asked or documents/clarifications requested by the proper officer."
+    },
+    {
+      "check_id": "NASMT_04",
+      "focus": "Extract deadline for reply",
+      "rule": "Identify the deadline by which the taxpayer must submit their reply/clarification to the scrutiny notice."
+    },
+    {
+      "check_id": "NASMT_05",
+      "focus": "Identify the proper officer details and jurisdiction",
+      "rule": "Extract the name, designation, and jurisdiction of the proper officer who issued the scrutiny notice."
+    }
+  ]
+}

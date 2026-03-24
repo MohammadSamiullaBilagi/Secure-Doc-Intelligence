@@ -1,0 +1,38 @@
+{
+    "blueprint_id": "BALANCE_SHEET_CA_AUDIT_2026_PRO",
+    "name": "Balance Sheet Red Flag & AS Compliance Audit (FY 2025-26)",
+    "description": "CA-level balance sheet review checklist covering unexplained cash balances, director loan restrictions, investment valuation (AS-13), related party disclosures (AS-18), contingent liabilities, and Companies Act compliance flags applicable for FY 2025-26.",
+
+    "checks": [
+
+      {
+        "check_id": "BS_01_UNEXPLAINED_CASH_BALANCE",
+        "focus": "Identify unexplained or disproportionately high cash-in-hand balance.",
+        "rule": "Cash-in-hand exceeding Rs 2 lakh at any point during the year is a red flag under income tax scrutiny. Verify: (a) Cash book reconciles with balance sheet cash balance; (b) Large cash withdrawals are explained by business operations (petty cash, wages, travel); (c) Cash receipts from sales match invoices/POS data; (d) Under Section 269ST, no single cash receipt from a person exceeds Rs 2 lakh in a day, for a single transaction, or for transactions relating to one event — violation attracts 100% penalty under Section 271DA; (e) Under Section 40A(3), cash payments above Rs 10,000/day to a single party are disallowed."
+      },
+
+      {
+        "check_id": "BS_02_LOANS_TO_DIRECTORS_SECTION_185",
+        "focus": "Check for loans, advances, or guarantees given to directors in violation of Section 185 of the Companies Act, 2013.",
+        "rule": "Section 185 (post-2018 amendment) prohibits a company from: (a) Directly or indirectly advancing any loan (including book debts) to a director of the company or its holding company; (b) Giving any guarantee or security in connection with a loan taken by a director. Exceptions: loans for ordinary course of business (e.g., banking companies), loans to managing/whole-time director as part of service conditions approved by special resolution. Violation: company and every officer in default is punishable with fine of Rs 5 lakh to Rs 25 lakh. Director must repay within 30 days or faces fine up to Rs 5 lakh plus imprisonment up to 6 months. Verify all debit balances in director's current accounts."
+      },
+
+      {
+        "check_id": "BS_03_INVESTMENTS_VALUATION_AS13",
+        "focus": "Verify investments are valued in accordance with Accounting Standard 13 (Valuation of Investments).",
+        "rule": "Under AS-13 (Accounting for Investments): (a) Current investments (short-term, held-for-trading) — must be valued at lower of cost or fair value (mark-to-market). Unrealised losses must be recognised in P&L; (b) Long-term investments — carried at cost unless there is a permanent diminution in value, in which case it must be written down and recognised in P&L; (c) Investments in subsidiaries and associates — must follow equity method if consolidated accounts prepared; (d) Any reclassification from current to long-term must be done at lower of cost or fair value at date of transfer. Verify that quoted investments have been marked to market and that long-term investments with significant fall in value have been impaired."
+      },
+
+      {
+        "check_id": "BS_04_RELATED_PARTY_DISCLOSURES_AS18",
+        "focus": "Verify all related party transactions are disclosed in notes to accounts as per AS-18.",
+        "rule": "Under AS-18 (Related Party Disclosures), the following must be disclosed in the financial statements: (a) Names of all related parties and the nature of relationship (holding, subsidiary, associate, key management personnel — KMP — and their relatives); (b) Description of each related party transaction with amounts; (c) Outstanding balances (payables/receivables) at year-end with terms; (d) Provisions for doubtful debts related to related party receivables. Related parties include: parent/subsidiary companies, fellow subsidiaries, associates (>20% shareholding), joint ventures, KMP (directors, CEO, CFO, Company Secretary), and close family members of KMP. Non-disclosure is a qualification ground for auditors."
+      },
+
+      {
+        "check_id": "BS_05_CONTINGENT_LIABILITIES_DISCLOSURE",
+        "focus": "Identify undisclosed contingent liabilities and verify AS-29 provisions are adequate.",
+        "rule": "Under AS-29 (Provisions, Contingent Liabilities and Contingent Assets): (a) A provision must be recognised when an obligation exists AND outflow of resources is probable AND the amount can be reliably estimated. Verify adequacy of provisions for gratuity (AS-15 actuarial valuation), warranty claims, and pending litigation; (b) A contingent liability must be DISCLOSED (not recognised) in the notes when outflow is possible but not probable — includes: pending legal cases with estimated exposure, disputed tax demands (income tax, GST, customs), bank guarantees given, bills discounted with recourse, and capital commitments; (c) Contingent liabilities that are remote need not be disclosed. Verify notes to accounts include all tax demands under appeal with the relevant AY and amount, and check if any disputed GST/custom demands exist that are unmentioned."
+      }
+    ]
+  }

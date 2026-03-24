@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_156",
+  "name": "Section 156 Tax Demand Notice Analysis",
+  "description": "Extracts key data from Income Tax Section 156 demand notices for drafting a formal reply or arranging payment.",
+  "checks": [
+    {
+      "check_id": "N156_01",
+      "focus": "Extract demand amount and assessment year",
+      "rule": "Identify the total tax demand amount stated in the notice and the assessment year it pertains to. Extract exact figures including any surcharge and education cess components."
+    },
+    {
+      "check_id": "N156_02",
+      "focus": "Extract the section under which assessment was completed",
+      "rule": "Identify the section under which the underlying assessment order was passed — for example 143(3) regular assessment, 144 best judgment assessment, 147 reassessment, or 153A search assessment. Extract the date of the assessment order as well."
+    },
+    {
+      "check_id": "N156_03",
+      "focus": "Identify all heads of income and additions made",
+      "rule": "List all heads of income (Salary, House Property, Business/Profession, Capital Gains, Other Sources) as assessed by the Assessing Officer, including any additions or disallowances made over the returned income with their amounts."
+    },
+    {
+      "check_id": "N156_04",
+      "focus": "Extract the 30-day payment deadline",
+      "rule": "Identify the date by which the taxpayer must pay the demand — typically 30 days from the date of service of the notice. Extract the exact deadline date stated in the notice."
+    },
+    {
+      "check_id": "N156_05",
+      "focus": "Identify interest under Section 220(2) or 234B/C and extract amounts",
+      "rule": "Determine whether interest under Section 220(2) for non-payment of demand, or interest under Section 234B (default in advance tax) or 234C (deferment of advance tax) is included in the demand. Extract each interest component separately with the applicable rate and amount."
+    }
+  ]
+}

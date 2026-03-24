@@ -1,0 +1,80 @@
+{
+    "blueprint_id": "INCOME_TAX_CA_AUDIT_2026_PRO",
+    "name": "Income Tax & Section 44AB Tax Audit Framework (FY 2025-26)",
+    "description": "CA audit checklist for Income Tax compliance — Form 3CD, Section 44AB, capital gains, deductions under Chapter VI-A, and TDS/TCS obligations as applicable for AY 2026-27.",
+
+    "checks": [
+
+      {
+        "check_id": "IT_01_SECTION_44AB_APPLICABILITY",
+        "focus": "Determine whether tax audit under Section 44AB is mandatory.",
+        "rule": "Tax audit is mandatory if: business turnover exceeds Rs 1 crore (Rs 10 crore if >95% transactions are digital), or professional receipts exceed Rs 50 lakh, or income declared is below 8%/6% of turnover under presumptive scheme. Verify applicability and confirm Form 3CA/3CB + 3CD is filed."
+      },
+
+      {
+        "check_id": "IT_02_FORM_3CD_CLAUSE_19_DEDUCTIONS",
+        "focus": "Verify deductions claimed under Sections 30–37.",
+        "rule": "Only revenue expenditure directly incurred for business purposes qualifies. Capital expenditure must be claimed as depreciation. Personal expenses, penalties, and fines are disallowed. Verify that depreciation rates match Schedule II of the Companies Act / Income Tax Rules."
+      },
+
+      {
+        "check_id": "IT_03_SECTION_40A3_CASH_PAYMENTS",
+        "focus": "Check for cash payments exceeding Rs 10,000 per day per person.",
+        "rule": "Under Section 40A(3), any payment exceeding Rs 10,000 in cash to a single party in a day is disallowed as a business expense. Flag any such cash transactions."
+      },
+
+      {
+        "check_id": "IT_04_SECTION_43B_STATUTORY_DUES",
+        "focus": "Verify timely payment of statutory dues (PF, ESI, GST, TDS, etc.).",
+        "rule": "Under Section 43B, deductions for statutory dues (PF, ESI, bonus, leave encashment, GST) are allowed only if actually paid on or before the due date of filing the return. Amounts outstanding as at year-end must be added back."
+      },
+
+      {
+        "check_id": "IT_05_CAPITAL_GAINS_CLASSIFICATION",
+        "focus": "Classify capital gains as short-term (STCG) or long-term (LTCG).",
+        "rule": "Listed equity shares/equity mutual funds held > 12 months = LTCG (taxed at 12.5% above Rs 1.25 lakh per FY 2025-26). All other assets: holding > 24 months (36 months for immovable property) = LTCG. Verify correct holding period and applicable tax rate."
+      },
+
+      {
+        "check_id": "IT_06_CHAPTER_VIA_DEDUCTIONS",
+        "focus": "Verify deductions under Chapter VI-A (80C, 80D, 80G, 80TTA, etc.).",
+        "rule": "80C limit is Rs 1.5 lakh; 80D health insurance limit is Rs 25,000 (Rs 50,000 for senior citizens); 80G donations must be to notified funds with valid 80G certificate. Deductions not available if taxpayer opts for new tax regime (Section 115BAC)."
+      },
+
+      {
+        "check_id": "IT_07_ADVANCE_TAX_COMPLIANCE",
+        "focus": "Verify advance tax payments as per Section 211 schedule.",
+        "rule": "If tax liability exceeds Rs 10,000, advance tax must be paid in four instalments: 15% by 15 June, 45% by 15 September, 75% by 15 December, 100% by 15 March. Shortfall attracts interest under Section 234B and 234C."
+      },
+
+      {
+        "check_id": "IT_08_RETURN_FILING_DUE_DATE",
+        "focus": "Confirm ITR filing within statutory due dates.",
+        "rule": "For AY 2026-27: Non-audit cases — 31 July 2026; Tax audit cases — 31 October 2026; Transfer pricing cases — 30 November 2026. Late filing attracts penalty under Section 234F (Rs 5,000 or Rs 1,000 if income < Rs 5 lakh) and interest under 234A."
+      },
+
+      {
+        "check_id": "IT_09_SECTION_40A_IA_TDS_DISALLOWANCE",
+        "focus": "Check whether TDS was deducted on contractor and professional fee payments under Section 40(a)(ia).",
+        "rule": "Under Section 40(a)(ia), 30% of payments to residents on which TDS was required but NOT deducted (or deducted but not deposited within the time allowed under Section 200) is disallowed as a business expense. Applies to: contractor payments (194C), professional/technical fees (194J), rent (194I), commission (194H), interest (194A), and royalty (194J). If TDS is deducted and deposited in subsequent year, 30% is added back in year of payment and allowed in year of deposit."
+      },
+
+      {
+        "check_id": "IT_10_SECTION_36_1_VA_EMPLOYEE_PF_ESI",
+        "focus": "Verify employee PF and ESI contributions deducted from salary are deposited before statutory due date.",
+        "rule": "Under Section 36(1)(va), employee contributions to PF/ESI/superannuation fund deducted from salary are allowable ONLY if deposited by the due date prescribed under the respective Act (PF Act: 15th of the following month; ESI Act: 21st of the following month). Any late deposit — even before ITR filing date — is FULLY DISALLOWED. This is a harder rule than Section 43B, confirmed by the Supreme Court in Checkmate Services Pvt Ltd v CIT (2022). Flag if deposit date exceeds the statutory due date."
+      },
+
+      {
+        "check_id": "IT_11_SECTION_14A_EXEMPT_INCOME_DISALLOWANCE",
+        "focus": "Identify expenditure related to earning exempt income that must be disallowed under Section 14A.",
+        "rule": "Under Section 14A read with Rule 8D, expenditure incurred in relation to income that does not form part of total income (e.g., dividend income, LTCG on equity post-exemption) must be disallowed. Rule 8D computation: (i) direct expenditure attributed to exempt income + (ii) 1% of the average value of investments generating exempt income. If exempt income is nil for the year, Section 14A disallowance should also be nil — flag if AO has invoked it despite nil exempt income."
+      },
+
+      {
+        "check_id": "IT_12_RELATED_PARTY_TRANSACTIONS_DISCLOSURE",
+        "focus": "Identify undisclosed or under-priced related party transactions.",
+        "rule": "Transactions with related parties (as defined under Section 40A(2)(b): directors, partners, relatives, associated concerns) must be disclosed in Form 3CD Clause 23 and assessed at arm's length. If payment exceeds fair market value, the excess is disallowed. If consideration received is below market value, the AO may invoke Section 56(2)(x) to tax the shortfall as income from other sources. Verify all inter-company loans, management fees, lease rentals, and purchase/sales transactions with group entities are at market rate."
+      }
+    ]
+  }

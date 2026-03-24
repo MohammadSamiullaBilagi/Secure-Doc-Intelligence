@@ -1,0 +1,38 @@
+{
+    "blueprint_id": "TAX_AUDIT_3CD_CLAUSES_2026_PRO",
+    "name": "Form 3CD Clause Audit — TDS, GST & Compliance Disclosures (AY 2026-27)",
+    "description": "Targeted Form 3CD compliance checklist covering Clause 34 (TDS/TCS), Clause 44 (GST breakup), Clause 30A (Transfer Pricing), Clause 31 (Hundi transactions), and Clause 40 (unabsorbed losses). Complements the Section 44AB Tax Audit blueprint which covers Clauses 19, 21, and 26.",
+
+    "checks": [
+
+      {
+        "check_id": "3CD_CLAUSE34_TDS_TCS_SUMMARY",
+        "focus": "Verify completeness and accuracy of TDS/TCS disclosure in Clause 34 of Form 3CD.",
+        "rule": "Clause 34 of Form 3CD requires: (a) Statement of whether the assessee is required to deduct or collect tax at source — if yes, confirm all sections applicable (192, 194C, 194J, 194I, 194H, etc.) are listed; (b) For each section, confirm: amount paid/credited, TDS/TCS deducted/collected, date of deposit to government; (c) Identify any default — TDS not deducted, or deducted but not deposited on time. Any short deduction or late deposit must be disclosed. Late deposit interest under Section 201(1A) (1% for late deduction, 1.5% for late deposit per month) must be disclosed if applicable."
+      },
+
+      {
+        "check_id": "3CD_CLAUSE44_GST_EXPENDITURE_BREAKUP",
+        "focus": "Verify GST-wise breakup of total expenditure as required by Clause 44 of Form 3CD.",
+        "rule": "Clause 44 (applicable from FY 2022-23) requires a breakup of total expenditure incurred during the year into: (a) Total amount of expenditure in relation to goods or services purchased from registered GST suppliers; (b) Expenditure relating to entities exempt from GST; (c) Expenditure relating to registered suppliers but taxed under composition scheme; (d) Expenditure relating to non-GST supplies; (e) Total expenditure relating to unregistered suppliers. Verify that the sum of all categories equals total expenditure reported in P&L. ITC claimed must be reconciled with GST-registered supplier expenditure."
+      },
+
+      {
+        "check_id": "3CD_CLAUSE30A_TRANSFER_PRICING",
+        "focus": "Identify international transactions and specified domestic transactions requiring transfer pricing documentation.",
+        "rule": "Clause 30A applies if: (a) International transactions exist with associated enterprises (AEs) as defined under Section 92A — these must be at arm's length price per Section 92C, documented in Form 3CEB by a CA, and reported. Threshold for TP audit: Rs 1 crore for international transactions; (b) Specified Domestic Transactions (SDTs) with AEs exceed Rs 20 crore — requires same arm's length documentation. Verify Form 3CEB has been filed if applicable, and contemporaneous TP documentation (comparables, method chosen) is in place."
+      },
+
+      {
+        "check_id": "3CD_CLAUSE31_HUNDI_TRANSACTIONS",
+        "focus": "Detect any payments made via hundi or other non-account-payee instruments.",
+        "rule": "Clause 31 of Form 3CD requires disclosure of: (a) Loans or deposits accepted otherwise than by account-payee cheque/draft/ECS where the aggregate from a single person exceeds Rs 20,000 — disallowed under Section 269SS; (b) Loans or deposits repaid otherwise than by account-payee cheque/draft/ECS where aggregate exceeds Rs 20,000 — disallowed under Section 269T. Hundi transactions or cash borrowings attract 100% penalty equal to the amount of the loan under Section 271D and 271E respectively. Verify that all borrowings and repayments above Rs 20,000 are through banking channels."
+      },
+
+      {
+        "check_id": "3CD_CLAUSE40_UNABSORBED_LOSSES_CARRIED_FORWARD",
+        "focus": "Verify correct carry-forward and set-off of unabsorbed depreciation and business losses.",
+        "rule": "Clause 40 requires disclosure of amounts of loss brought forward from earlier years and set off in the current year. Rules: (a) Business losses can be carried forward 8 years and set off only against business income; (b) Speculation losses carried forward 4 years, set off only against speculation profits (Section 73); (c) Capital losses carried forward 8 years — STCL set off against STCG or LTCG; LTCL set off only against LTCG; (d) Unabsorbed depreciation has NO time limit and can be set off against any head of income. Verify that losses claimed are supported by original return filed within due date (mandatory for claiming carry-forward under Section 139(3))."
+      }
+    ]
+  }

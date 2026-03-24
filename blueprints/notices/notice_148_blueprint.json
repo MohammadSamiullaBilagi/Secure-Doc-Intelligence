@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_148",
+  "name": "Section 148 Reopening Notice Analysis",
+  "description": "Extracts key data from Income Tax Section 148 reopening notices for drafting a formal reply.",
+  "checks": [
+    {
+      "check_id": "N148_01",
+      "focus": "Extract the assessment year being reopened and reasons recorded",
+      "rule": "Identify the assessment year being reopened and the specific reasons to believe that income has escaped assessment."
+    },
+    {
+      "check_id": "N148_02",
+      "focus": "Identify the escaped income amount and nature",
+      "rule": "Extract the amount of income alleged to have escaped assessment and its nature (capital gains, unexplained credits, etc.)."
+    },
+    {
+      "check_id": "N148_03",
+      "focus": "Extract taxpayer PAN, name, and jurisdictional AO details",
+      "rule": "Extract PAN, taxpayer name, and the Assessing Officer's designation and jurisdiction."
+    },
+    {
+      "check_id": "N148_04",
+      "focus": "Check if notice is within time limitation under Section 149",
+      "rule": "Verify whether the notice has been issued within the time limits prescribed under Section 149(1). Extract issue date and relevant AY."
+    },
+    {
+      "check_id": "N148_05",
+      "focus": "Extract response deadline and required documents",
+      "rule": "Identify the deadline to file return in response and any specific documents or information sought."
+    }
+  ]
+}

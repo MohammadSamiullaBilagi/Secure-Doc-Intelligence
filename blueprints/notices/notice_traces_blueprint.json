@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_TRACES",
+  "name": "TRACES TDS Delinquency Notice Analysis",
+  "description": "Extracts key data from TRACES TDS delinquency notices for drafting a formal reply or arranging rectification.",
+  "checks": [
+    {
+      "check_id": "NTRACES_01",
+      "focus": "Extract TAN, company name, and the quarter/FY of default",
+      "rule": "Identify the Tax Deduction Account Number (TAN), the name of the deductor company or entity, the financial year, and the specific quarter (Q1/Q2/Q3/Q4) for which the TDS default has been flagged."
+    },
+    {
+      "check_id": "NTRACES_02",
+      "focus": "Identify the nature of default",
+      "rule": "Determine the nature of the TDS default as stated in the notice. Classify it as one or more of: short deduction (TDS deducted at a lower rate than applicable), non-deduction (TDS not deducted at all), late deposit (TDS deducted but deposited after the due date), or short deposit (TDS deducted but deposited for a lesser amount). Extract the section and rate applicable."
+    },
+    {
+      "check_id": "NTRACES_03",
+      "focus": "Extract the demand amount including interest u/s 201(1A)",
+      "rule": "Identify the total demand amount raised, including the principal TDS shortfall amount and interest levied under Section 201(1A) for late or non-deposit. Extract these as separate line items with amounts and period of interest calculation."
+    },
+    {
+      "check_id": "NTRACES_04",
+      "focus": "List all deductees and transactions flagged",
+      "rule": "List all deductees (employees, vendors, or parties) and the specific transactions flagged in the notice, including PAN of deductees where mentioned, amounts paid, TDS that should have been deducted, and TDS actually deducted or deposited."
+    },
+    {
+      "check_id": "NTRACES_05",
+      "focus": "Extract the deadline for rectification or payment",
+      "rule": "Identify the deadline by which the deductor must rectify the default — either by paying the outstanding TDS and interest, filing a correction statement, or responding with reasons. Extract the exact date stated in the notice."
+    }
+  ]
+}

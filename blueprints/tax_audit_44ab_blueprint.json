@@ -1,0 +1,56 @@
+{
+    "blueprint_id": "TAX_AUDIT_44AB_CA_2026_PRO",
+    "name": "Section 44AB Tax Audit — Form 3CD Clause Checklist (AY 2026-27)",
+    "description": "Clause-by-clause compliance checklist for Form 3CD under Section 44AB of the Income Tax Act. Covers high-risk clauses commonly scrutinised during assessment: related party transactions, loans, deemed dividends, speculation losses, and ICDS adjustments.",
+
+    "checks": [
+
+      {
+        "check_id": "3CD_01_CLAUSE_19_DEPRECIATION",
+        "focus": "Verify depreciation computation under the Income Tax Act.",
+        "rule": "Depreciation must be computed block-wise per Schedule XIV of Income Tax Rules. Rates: Plant & Machinery — 15%; Computers & software — 40%; Furniture — 10%; Buildings — 10% (residential: 5%). Addition/deletion during the year must be considered at 50% rate if asset used for <180 days. CENVAT/GST credit received must reduce actual cost."
+      },
+
+      {
+        "check_id": "3CD_02_CLAUSE_21_PAYMENTS_TO_RELATED_PARTIES",
+        "focus": "Identify payments to related parties under Section 40A(2).",
+        "rule": "Under Section 40A(2), if payment to a related party (director, partner, relative, or associated concern) is excessive compared to fair market value, the excess is disallowed. Clause 21 of Form 3CD requires disclosure of all such payments. Flag transactions where market rate comparison is absent."
+      },
+
+      {
+        "check_id": "3CD_03_CLAUSE_22_BONUS_PF_PAYMENTS",
+        "focus": "Check bonus, PF, and gratuity payments for Section 43B compliance.",
+        "rule": "Bonus must be paid before the ITR due date to claim deduction. PF and ESI contributions must be deposited within the statutory due date (not the ITR due date). Employee contribution to PF deducted from salary but not deposited by due date is fully disallowed under Section 36(1)(va) — Supreme Court ruling in Checkmate Services confirmed this."
+      },
+
+      {
+        "check_id": "3CD_04_CLAUSE_26_LOANS_ACCEPTED_REPAID",
+        "focus": "Verify loans accepted or repaid comply with Section 269SS and 269T.",
+        "rule": "Under Section 269SS, any loan or deposit of Rs 20,000 or more must not be accepted in cash. Under Section 269T, repayment of such loans must not be in cash if the amount is Rs 20,000 or more. Violations attract 100% penalty equal to the loan amount. Clause 26 of Form 3CD requires full disclosure."
+      },
+
+      {
+        "check_id": "3CD_05_CLAUSE_29A_DEEMED_DIVIDEND",
+        "focus": "Check for deemed dividend under Section 2(22)(e).",
+        "rule": "If a closely held company gives loans or advances to a shareholder holding >10% beneficial interest, or to a concern in which such shareholder has >20% stake, it is treated as deemed dividend to the extent of accumulated profits. Taxable in the hands of the recipient. Verify loan transactions with promoter entities."
+      },
+
+      {
+        "check_id": "3CD_06_CLAUSE_32_SPECULATION_LOSSES",
+        "focus": "Identify speculation business and segregate speculation losses.",
+        "rule": "Under Section 73, losses from a speculation business can only be set off against speculation profits in the same year. Unabsorbed speculation losses can be carried forward for 4 years only. A company whose main business is not banking/financing is deemed speculative if it trades in shares (Explanation to Section 73). Verify if intraday equity trading is present."
+      },
+
+      {
+        "check_id": "3CD_07_CLAUSE_36_ICDS_ADJUSTMENTS",
+        "focus": "Verify ICDS (Income Computation and Disclosure Standards) compliance.",
+        "rule": "ICDS I to X apply to taxpayers with business or professional income following mercantile accounting. Key differences: ICDS II (Inventories) — no lower of cost or NRV for opening stock; ICDS III (Construction Contracts) — percentage completion mandatory; ICDS IX (Borrowing Costs) — no suspension of capitalisation. Clause 13 of Form 3CD requires disclosure of ICDS effect on net profit."
+      },
+
+      {
+        "check_id": "3CD_08_CLAUSE_41_AMOUNTS_WRITTEN_OFF",
+        "focus": "Review bad debts written off for Section 36(1)(vii) compliance.",
+        "rule": "Bad debt deduction under Section 36(1)(vii) is allowed only if: the debt has been written off as irrecoverable in the books of account, the debt was taken into income in the current or an earlier year, and it was a trading debt (not a capital debt). Clause 41 requires disclosure of amounts written off or written back."
+      }
+    ]
+  }

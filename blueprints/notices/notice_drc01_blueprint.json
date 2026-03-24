@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_DRC_01",
+  "name": "DRC-01 GST Demand / Show Cause Notice Analysis",
+  "description": "Extracts key data from GST DRC-01 show cause notices for drafting a formal reply.",
+  "checks": [
+    {
+      "check_id": "NDRC_01",
+      "focus": "Extract GSTIN, legal name, and the section under which SCN is issued",
+      "rule": "Identify GSTIN, legal name, and the specific section of CGST/SGST Act under which the show cause notice has been issued (e.g., Section 73 or Section 74)."
+    },
+    {
+      "check_id": "NDRC_02",
+      "focus": "Extract demand amount breakdown — tax, interest, penalty",
+      "rule": "Identify the total demand amount and its breakdown into tax, interest, and penalty components. Extract exact figures for CGST, SGST, IGST if available."
+    },
+    {
+      "check_id": "NDRC_03",
+      "focus": "Identify the grounds/allegations in the SCN",
+      "rule": "List all specific grounds or allegations on which the demand has been raised — wrong availment of ITC, suppression of turnover, etc."
+    },
+    {
+      "check_id": "NDRC_04",
+      "focus": "Extract the tax period covered",
+      "rule": "Identify all tax periods (months/quarters/years) covered by this show cause notice."
+    },
+    {
+      "check_id": "NDRC_05",
+      "focus": "Extract response deadline and hearing date",
+      "rule": "Identify the deadline for written reply and any personal hearing date mentioned in the notice."
+    }
+  ]
+}

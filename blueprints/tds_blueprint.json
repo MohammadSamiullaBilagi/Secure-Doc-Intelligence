@@ -1,0 +1,68 @@
+{
+    "blueprint_id": "TDS_TCS_CA_AUDIT_2026_PRO",
+    "name": "TDS & TCS Compliance Audit Framework (FY 2025-26)",
+    "description": "CA audit checklist for Tax Deducted at Source (TDS) and Tax Collected at Source (TCS) — covering Section 192–194S, deduction rates, timely deposit, Form 26Q/27Q/27EQ filing, and Form 16/16A issuance as per Income Tax Act.",
+
+    "checks": [
+
+      {
+        "check_id": "TDS_01_DEDUCTION_AT_CORRECT_RATE",
+        "focus": "Verify TDS deducted at prescribed rates for the payment type.",
+        "rule": "TDS rates for FY 2025-26: Salary (192) — per slab; Rent >Rs 50,000/month (194-IB) — 2%; Contractor/sub-contractor (194C) — 1% individual, 2% company; Professional/technical fees (194J) — 10% (2% for technical services); Interest other than bank (194A) — 10%; E-commerce operators (194O) — 1%. Deduction at lower rate requires valid Form 15G/15H or lower deduction certificate."
+      },
+
+      {
+        "check_id": "TDS_02_TIMELY_DEPOSIT_CHALLAN",
+        "focus": "Verify TDS deposited to government within statutory deadlines.",
+        "rule": "TDS deducted in any month (except March) must be deposited by the 7th of the following month. TDS deducted in March must be deposited by 30 April. Government deductors must deposit same day if paid by book entry, or 7th of next month if paid by challan. Late deposit attracts interest at 1.5% per month under Section 201(1A)."
+      },
+
+      {
+        "check_id": "TDS_03_QUARTERLY_RETURN_FILING",
+        "focus": "Confirm TDS returns (Form 26Q, 27Q, 24Q) filed within due dates.",
+        "rule": "Quarterly TDS return due dates: Q1 (Apr–Jun) — 31 July; Q2 (Jul–Sep) — 31 October; Q3 (Oct–Dec) — 31 January; Q4 (Jan–Mar) — 31 May. Late filing penalty under Section 234E is Rs 200 per day, capped at TDS amount. Failure to file attracts penalty under Section 271H (Rs 10,000 to Rs 1,00,000)."
+      },
+
+      {
+        "check_id": "TDS_04_FORM_16_16A_ISSUANCE",
+        "focus": "Verify Form 16 / 16A issued to deductees within due dates.",
+        "rule": "Form 16 (salary TDS) must be issued by 15 June of the following AY. Form 16A (non-salary TDS) must be issued within 15 days of the due date for furnishing the quarterly return. Non-issuance attracts penalty under Section 272A(2)(g) of Rs 100 per day."
+      },
+
+      {
+        "check_id": "TDS_05_194A_BANK_INTEREST_THRESHOLD",
+        "focus": "Check TDS applicability on interest payments from banks and NBFCs.",
+        "rule": "TDS under Section 194A applies if interest from a bank/co-operative society exceeds Rs 50,000 in a financial year (Rs 1,00,000 for senior citizens after Budget 2025). For other entities, threshold is Rs 5,000. Rate is 10%. Submit Form 15G/15H to avoid TDS where eligible."
+      },
+
+      {
+        "check_id": "TDS_06_SECTION_194S_VDA_CRYPTO",
+        "focus": "Check TDS on Virtual Digital Assets (crypto/NFTs) under Section 194S.",
+        "rule": "TDS at 1% applies on transfer of Virtual Digital Assets if consideration exceeds Rs 50,000 (Rs 10,000 for specified persons). Applicable since July 2022. Buyer is responsible for deduction. Verify if any VDA transactions exist and TDS has been deducted and deposited."
+      },
+
+      {
+        "check_id": "TDS_07_LOWER_DEDUCTION_CERTIFICATE_VALIDITY",
+        "focus": "Validate Form 13 lower/nil deduction certificates on file.",
+        "rule": "Lower deduction certificates (Form 13) are valid only for the AY specified. Deduction at lower rate without a valid certificate, or after its expiry, constitutes short deduction. Verify certificate number, AY, and applicable TDS rate mentioned in the certificate."
+      },
+
+      {
+        "check_id": "TDS_08_PAN_VERIFICATION_HIGHER_RATE",
+        "focus": "Confirm PAN of deductee is available to avoid higher TDS rate.",
+        "rule": "Under Section 206AA, if deductee fails to furnish PAN, TDS must be deducted at the higher of: the rate specified, 20%, or rate in force. From FY 2023-24, Aadhaar-linked PAN is deemed valid. Verify PAN is collected and validated for all vendor/contractor payments."
+      },
+
+      {
+        "check_id": "TDS_09_FORM_15G_15H_VALIDITY",
+        "focus": "Verify Form 15G / 15H declarations are valid before applying nil TDS.",
+        "rule": "Form 15H (senior citizens, 60+ years) and Form 15G (non-senior individuals/HUFs) allow nil TDS on interest, rent, and professional fees if the declarant's total income is below the taxable threshold. Validity conditions: (a) Form must be for the current financial year — prior-year forms are invalid; (b) Estimated total income in the declaration must be below the basic exemption limit; (c) Form must be submitted before the first payment in the year, not after TDS has been deducted; (d) Deductor must upload declarations to TRACES portal by 7th of the following quarter. Accepting a Form 15G from a person whose income clearly exceeds the exemption limit exposes the deductor to penalty under Section 277A."
+      },
+
+      {
+        "check_id": "TDS_10_TAN_REGISTRATION_AND_QUOTING",
+        "focus": "Confirm Tax Deduction Account Number (TAN) is registered and quoted on all TDS documents.",
+        "rule": "Every person liable to deduct TDS must obtain a TAN under Section 203A. TAN must be quoted on: TDS challans, TDS certificates (Form 16/16A), TDS returns (24Q/26Q/27Q), and all TDS-related correspondence. Failure to obtain TAN attracts penalty of Rs 10,000 under Section 272BB. Failure to quote TAN on prescribed documents attracts penalty of Rs 10,000 under Section 272BB(1A). Verify TAN appears on all quarterly return acknowledgements and Form 16/16A certificates."
+      }
+    ]
+  }

@@ -1,14 +1,51 @@
 import logging
 import requests
 from typing import Dict, Any
+from sqlalchemy import select, create_engine
+from sqlalchemy.orm import Session as SyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from config import settings
+from db.config import settings
+from db.models.core import UserPreference
 from utils.exceptions import WebhookDeliveryError
 
 logger = logging.getLogger(__name__)
 
 class WebhookService:
+    @staticmethod
+    def _fetch_user_preferences_sync(user_id: str) -> dict:
+        """Synchronous helper to fetch user delivery targets.
+
+        Uses a synchronous SQLite connection to avoid 'event loop already running'
+        errors when called from a sync LangGraph node inside an async FastAPI endpoint.
+        """
+        if not user_id:
+            return {"email": None, "whatsapp": None, "tier": "standard"}
+
+        try:
+            from uuid import UUID
+            # Ensure user_id is a proper UUID object for SQLAlchemy Uuid column comparison
+            uid = UUID(user_id) if isinstance(user_id, str) else user_id
+
+            # Build a sync engine from the async DATABASE_URL
+            sync_url = settings.sync_database_url
+            sync_engine = create_engine(sync_url)
+
+            with SyncSession(sync_engine) as session:
+                query = select(UserPreference).where(UserPreference.user_id == uid)
+                prefs = session.execute(query).scalar_one_or_none()
+                
+                if prefs:
+                    return {
+                        "email": prefs.preferred_email,
+                        "whatsapp": prefs.whatsapp_number,
+                        "tier": prefs.alert_tier
+                    }
+        except Exception as e:
+            logger.error(f"Failed to fetch user preferences for dispatch: {e}")
+                
+        return {"email": None, "whatsapp": None, "tier": "standard"}
+
     @staticmethod
     @retry(
         stop=stop_after_attempt(4),
@@ -17,31 +54,39 @@ class WebhookService:
     )
     def dispatch_audit_results(session_hash: str, filename: str, final_state: Dict[str, Any]) -> bool:
         """Transmits the final audit state to an external webhook (e.g., n8n)."""
-        webhook_url = settings.n8n_webhook_url
+        webhook_url = settings.N8N_WEBHOOK_URL
         if not webhook_url:
-            logger.warning("Webhook delivery skipped: n8n_webhook_url is not configured.")
+            logger.warning("Webhook delivery skipped: N8N_WEBHOOK_URL is not configured.")
             return False
 
         logger.info(f"Dispatching audit results to webhook for session: {session_hash}")
 
         remediation = final_state.get("remediation_draft", {})
         
-        # ==========================================
-        # THE FIX: HTML ENCODING FOR GMAIL
-        # ==========================================
+        # Determine the user who triggered this job
+        user_id = final_state.get("user_id")
+        
+        # Use synchronous DB access to avoid event loop conflicts
+        user_prefs = WebhookService._fetch_user_preferences_sync(user_id)
+        
         # We grab the human-approved text (which has \n)
         raw_email_body = remediation.get("email_body", "")
         
         # We replace Python newlines with HTML line breaks
         # We also replace spaces with non-breaking spaces for bullet-point indentation
         html_email_body = raw_email_body.replace('\n', '<br>').replace('   -', '&nbsp;&nbsp;&nbsp;-')
-        # ==========================================
 
         payload = {
             "meta": {
                 "session_hash": session_hash,
                 "document_name": filename,
-                "blueprint_used": final_state.get("blueprint", {}).name if hasattr(final_state.get("blueprint"), 'name') else "Unknown"
+                "blueprint_used": final_state.get("blueprint", {}).name if hasattr(final_state.get("blueprint"), 'name') else "Unknown",
+                "user_id": user_id
+            },
+            "dispatch_targets": {
+                "email": user_prefs.get("email"),
+                "whatsapp": user_prefs.get("whatsapp"),
+                "tier": user_prefs.get("tier")
             },
             "risk_assessment": final_state.get("risk_report", "No report generated."),
             "action_required": remediation.get("requires_action", False),
@@ -52,8 +97,10 @@ class WebhookService:
                 "body_html": html_email_body    # NEW: The HTML version for Gmail
             },
             "violations": [
-                res.model_dump() for res in final_state.get("audit_results", []) 
-                if not res.is_compliant
+                (res.model_dump() if hasattr(res, 'model_dump') else res)
+                for res in final_state.get("audit_results", [])
+                if str(getattr(res, 'compliance_status', None) or (res.get('compliance_status', '') if isinstance(res, dict) else '')).upper()
+                not in ('COMPLIANT', 'TRUE')
             ]
         }
 

@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_143_1",
+  "name": "Section 143(1) Intimation Analysis",
+  "description": "Extracts key data from Income Tax Section 143(1) intimation notices for drafting a formal reply.",
+  "checks": [
+    {
+      "check_id": "N143_01",
+      "focus": "Extract demand amount and assessment year",
+      "rule": "Identify the total demand or refund amount stated in the intimation and the assessment year it pertains to. Extract exact figures."
+    },
+    {
+      "check_id": "N143_02",
+      "focus": "Identify mismatch items between ITR and CPC",
+      "rule": "List all items where CPC has found a mismatch between the filed ITR and Form 26AS/AIS data, including income heads, deductions disallowed, and TDS mismatches."
+    },
+    {
+      "check_id": "N143_03",
+      "focus": "Extract taxpayer PAN, name, and address",
+      "rule": "Extract the taxpayer's PAN number, full legal name, and address as stated in the notice."
+    },
+    {
+      "check_id": "N143_04",
+      "focus": "Identify disallowances or additions by CPC",
+      "rule": "List all specific disallowances, additions to income, or adjustments made by CPC with their section references and amounts."
+    },
+    {
+      "check_id": "N143_05",
+      "focus": "Extract response deadline",
+      "rule": "Identify the deadline or due date by which the taxpayer must respond to or rectify the intimation."
+    }
+  ]
+}

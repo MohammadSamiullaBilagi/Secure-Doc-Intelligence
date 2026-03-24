@@ -1,27 +1,50 @@
 {
-    "blueprint_id": "GST_CA_SCAN_2026_V1",
-    "name": "Comprehensive GST & Vendor Compliance Audit (2026)",
-    "description": "Standard CA firm audit for Input Tax Credit (ITC) eligibility, Blocked Credits under Sec 17(5), and MSME payment compliance.",
+    "blueprint_id": "GST_CA_AUDIT_2026_PRO",
+    "name": "GST, ITC & MSME Compliance Audit Framework (FY 2025-26)",
+    "description": "Professional CA audit checklist aligned with CGST Act, Rule 36(4), Section 17(5), E-Invoicing Rules and Section 43B(h) MSME compliance as applicable for FY 2025-26.",
+  
     "checks": [
-        {
-            "check_id": "GST_01_FORMAT",
-            "focus": "Extract the Vendor GSTIN, Purchaser GSTIN, and the Invoice Date.",
-            "rule": "Both GSTINs must be exactly 15 alphanumeric characters. The invoice date must be clearly stated. Flag if any are missing or invalid."
-        },
-        {
-            "check_id": "GST_02_BLOCKED_CREDIT",
-            "focus": "Extract the exact nature of the goods or services provided in the invoice or contract.",
-            "rule": "Evaluate if the items fall under Blocked Credits (Section 17(5) of CGST Act). Flag as a severe violation if the goods include: motor vehicles for passenger transport, food and beverages, outdoor catering, beauty treatment, health services, cosmetic surgery, or membership of a club/health/fitness centre."
-        },
-        {
-            "check_id": "GST_03_E_INVOICE",
-            "focus": "Extract the Invoice Reference Number (IRN) and look for the presence of a QR code.",
-            "rule": "For B2B transactions, an IRN (64-character hash) and QR code are mandatory if the vendor's turnover exceeds the mandate. If neither an IRN nor QR code is mentioned on the invoice, flag this as a potential e-invoicing compliance risk."
-        },
-        {
-            "check_id": "MSME_04_PAYMENT_TERMS",
-            "focus": "Extract the payment terms, specifically the number of days within which payment must be made to the vendor.",
-            "rule": "Under Section 43B(h) of the Income Tax Act (impacting audit), payments to Micro/Small enterprises must be made within 45 days (if a written agreement exists) or 15 days (if no agreement). If the stated payment terms exceed 45 days, flag it as a violation."
-        }
+  
+      {
+        "check_id": "GST_01_INVOICE_MANDATORY_FIELDS",
+        "focus": "Verify mandatory particulars under Rule 46 of CGST Rules.",
+        "rule": "Invoice must contain: Supplier name, address, GSTIN (15 characters), Invoice number (unique), Date, Recipient GSTIN (15 characters for B2B), HSN/SAC code, taxable value, tax rate, tax amount (CGST/SGST/IGST), place of supply, signature."
+      },
+  
+      {
+        "check_id": "GST_02_GSTIN_VALIDATION",
+        "focus": "Validate GSTIN structure.",
+        "rule": "GSTIN must follow format: 2-digit state code + 10-character PAN + 1 entity code + Z + 1 checksum. Flag if invalid."
+      },
+  
+      {
+        "check_id": "GST_03_E_INVOICE_COMPLIANCE",
+        "focus": "Check applicability of e-invoicing as per latest CBIC turnover threshold.",
+        "rule": "For applicable taxpayers, invoice must contain valid 64-character IRN, IRP acknowledgement number, acknowledgement date, and QR code. Absence is a compliance breach."
+      },
+  
+      {
+        "check_id": "GST_04_BLOCKED_ITC_SECTION_17_5",
+        "focus": "Analyse nature of goods/services.",
+        "rule": "ITC shall not be claimed for motor vehicles (passenger use), food & beverages, outdoor catering, beauty treatment, health services, club membership, works contract for immovable property (unless exceptions apply). Flag as ineligible ITC."
+      },
+  
+      {
+        "check_id": "GST_05_RULE_36_4_RECONCILIATION",
+        "focus": "Match invoice with GSTR-2B.",
+        "rule": "ITC can be claimed only if reflected in GSTR-2B. Flag mismatch risk."
+      },
+  
+      {
+        "check_id": "MSME_06_SECTION_43B_H",
+        "focus": "Payment terms for MSME vendors.",
+        "rule": "Payment must be made within 45 days if written agreement exists, 15 days otherwise. Delayed payments disallowed as deduction under Section 43B(h)."
+      },
+  
+      {
+        "check_id": "GST_07_TAX_RATE_VALIDATION",
+        "focus": "Verify tax rate applicability.",
+        "rule": "GST rate must match HSN/SAC classification as per current GST rate notifications."
+      }
     ]
-}
+  }

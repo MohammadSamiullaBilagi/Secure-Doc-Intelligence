@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_271_1C",
+  "name": "Section 271(1)(c) Penalty Notice Analysis",
+  "description": "Extracts key data from Income Tax Section 271(1)(c) penalty notices for drafting a formal reply.",
+  "checks": [
+    {
+      "check_id": "N271_01",
+      "focus": "Extract assessment year and penalty amount proposed",
+      "rule": "Identify the assessment year and the exact penalty amount proposed under Section 271(1)(c)."
+    },
+    {
+      "check_id": "N271_02",
+      "focus": "Identify the limb — concealment of income or furnishing inaccurate particulars",
+      "rule": "Determine whether the penalty is proposed for concealment of income or furnishing inaccurate particulars of income. Both limbs must not be struck simultaneously (Dilip Shroff principle)."
+    },
+    {
+      "check_id": "N271_03",
+      "focus": "Extract the concealed/inaccurate income amount",
+      "rule": "Identify the specific amount of income that has been concealed or the inaccurate particulars furnished, as alleged in the notice."
+    },
+    {
+      "check_id": "N271_04",
+      "focus": "Extract taxpayer PAN and AO details",
+      "rule": "Extract PAN, taxpayer name, and the Assessing Officer's designation who has initiated penalty proceedings."
+    },
+    {
+      "check_id": "N271_05",
+      "focus": "Extract response deadline and hearing date",
+      "rule": "Identify the deadline to submit written reply and the date fixed for personal hearing."
+    }
+  ]
+}

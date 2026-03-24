@@ -1,0 +1,32 @@
+{
+  "blueprint_id": "NOTICE_26QB",
+  "name": "Section 194IA / 26QB TDS Default Notice Analysis",
+  "description": "Extracts key data from Section 194IA property TDS default notices (26QB) for drafting a formal reply or arranging compliance.",
+  "checks": [
+    {
+      "check_id": "N26QB_01",
+      "focus": "Extract property buyer/seller names, PAN numbers, and property transaction value",
+      "rule": "Identify the full legal name and PAN of the property buyer (deductor) and the property seller (deductee), and the total consideration value of the property transaction as stated in the notice or Form 26QB acknowledgment."
+    },
+    {
+      "check_id": "N26QB_02",
+      "focus": "Identify TDS default — non-deduction, short deduction, or late deposit with amounts",
+      "rule": "Determine the nature of the Section 194IA TDS default: non-deduction (TDS at 1% not deducted on property purchase above Rs.50 lakhs), short deduction (TDS deducted at less than 1%), or late deposit (TDS deducted but not deposited within 30 days of deduction). Extract the TDS amount that should have been deducted and the shortfall."
+    },
+    {
+      "check_id": "N26QB_03",
+      "focus": "Extract demand including interest u/s 201(1A) at 1.5% per month",
+      "rule": "Identify the total demand amount including principal TDS default and interest charged under Section 201(1A) at the rate of 1.5% per month (or part thereof) from the date TDS was deductible to the date of actual payment. Extract principal and interest separately."
+    },
+    {
+      "check_id": "N26QB_04",
+      "focus": "Extract the deadline for compliance",
+      "rule": "Identify the date by which the buyer must comply — either by depositing the outstanding TDS and interest via Form 26QB or responding to the notice. Extract the exact deadline date stated in the notice."
+    },
+    {
+      "check_id": "N26QB_05",
+      "focus": "Identify whether Form 26QB was filed and if corrections are needed",
+      "rule": "Determine whether Form 26QB was filed by the buyer at the time of the property transaction. If filed, extract the acknowledgment number and date. Identify whether corrections to Form 26QB are required — for example, incorrect PAN of seller, wrong property value, or wrong challan details — and list what corrections are needed."
+    }
+  ]
+}
