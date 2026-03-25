@@ -115,6 +115,12 @@ async def startup_event():
 
     # Auto-create tables only for local SQLite dev; PostgreSQL uses Alembic migrations
     if settings.is_sqlite:
+        if settings.is_production:
+            logger.critical(
+                "FATAL: SQLite cannot be used in production — data is ephemeral on Cloud Run. "
+                "Set DATABASE_URL to a PostgreSQL connection string."
+            )
+            sys.exit(1)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("SQLite dev tables auto-created.")
