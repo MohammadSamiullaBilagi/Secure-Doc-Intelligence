@@ -41,6 +41,7 @@ origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.lovable\.app|https://.*\.lovableproject\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -137,6 +138,30 @@ async def startup_event():
         logger.info("System blueprints verified/seeded.")
     except Exception as e:
         logger.error(f"Error seeding system blueprints: {e}")
+
+    # Auto-promote admin users (configured via ADMIN_EMAILS env var)
+    admin_emails_str = settings.ADMIN_EMAILS
+    if admin_emails_str:
+        try:
+            from sqlalchemy import select as sa_select
+            from db.models.core import User as UserModel
+            admin_emails = [e.strip() for e in admin_emails_str.split(",") if e.strip()]
+            async with AsyncSessionLocal() as session:
+                for email in admin_emails:
+                    result = await session.execute(
+                        sa_select(UserModel).where(UserModel.email == email)
+                    )
+                    user = result.scalar_one_or_none()
+                    if user and not user.is_admin:
+                        user.is_admin = True
+                        await session.commit()
+                        logger.info(f"Auto-promoted {email} to admin.")
+                    elif user and user.is_admin:
+                        logger.info(f"Admin already set for {email}.")
+                    else:
+                        logger.warning(f"Admin email {email} not found in DB — will be promoted on next login/register.")
+        except Exception as e:
+            logger.error(f"Error auto-promoting admins: {e}")
 
     # Background job scheduler (TTL sweep, knowledge scrape, email reminders)
     try:

@@ -104,6 +104,9 @@ async def verify_payment(
 ):
     """Verifies Razorpay payment signature and activates the plan."""
     # 1. Verify the Razorpay signature
+    logger.info(f"Payment verify: order={request.razorpay_order_id}, payment={request.razorpay_payment_id}, plan={request.plan}")
+    logger.info(f"RAZORPAY_KEY_SECRET present: {bool(settings.RAZORPAY_KEY_SECRET)}, length: {len(settings.RAZORPAY_KEY_SECRET)}")
+
     message = f"{request.razorpay_order_id}|{request.razorpay_payment_id}"
     expected_signature = hmac.new(
         settings.RAZORPAY_KEY_SECRET.encode(),
@@ -112,6 +115,7 @@ async def verify_payment(
     ).hexdigest()
 
     if not hmac.compare_digest(expected_signature, request.razorpay_signature):
+        logger.warning(f"Signature mismatch: expected={expected_signature[:16]}..., got={request.razorpay_signature[:16]}...")
         raise HTTPException(status_code=400, detail="Invalid payment signature")
 
     # 2. Activate the plan

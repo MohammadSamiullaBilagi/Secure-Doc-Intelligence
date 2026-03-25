@@ -12,6 +12,7 @@ from db.database import get_db
 from db.models.core import User
 from db.models.billing import Subscription
 from schemas.user import TokenData
+from services.credits_service import CreditsService
 
 # OAuth2 scheme configures Swagger UI to send token to /auth/login
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
@@ -72,25 +73,15 @@ async def require_starter(
 ) -> User:
     """Dependency that enforces Starter plan or above.
 
-    Free trial users with remaining credits are allowed through.
+    Admin users and free trial users with remaining credits are allowed through.
     Returns the user if they are on Starter, Professional, Enterprise,
     or Free Trial with credits > 0.
     """
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == current_user.id)
-    )
-    sub = result.scalar_one_or_none()
+    # Admins bypass all plan restrictions
+    if current_user.is_admin:
+        return current_user
 
-    if not sub:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "Subscription required",
-                "message": "Please sign up for a plan to access this feature.",
-                "current_plan": "none",
-                "required_plan": "free_trial",
-            },
-        )
+    sub = await CreditsService.get_or_create_subscription(current_user.id, db)
 
     # Free trial users with credits can access all features
     if sub.plan == "free_trial" and sub.credits_balance > 0:
@@ -115,24 +106,14 @@ async def require_enterprise(
 ) -> User:
     """Dependency that enforces Enterprise plan for Phase 3 CA features.
 
-    Free trial users with remaining credits are allowed through.
+    Admin users and free trial users with remaining credits are allowed through.
     Returns the user if they are on the Enterprise plan, or Free Trial with credits > 0.
     """
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == current_user.id)
-    )
-    sub = result.scalar_one_or_none()
+    # Admins bypass all plan restrictions
+    if current_user.is_admin:
+        return current_user
 
-    if not sub:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "Subscription required",
-                "message": "Please sign up for a plan to access this feature.",
-                "current_plan": "none",
-                "required_plan": "free_trial",
-            },
-        )
+    sub = await CreditsService.get_or_create_subscription(current_user.id, db)
 
     # Free trial users with credits can access all features
     if sub.plan == "free_trial" and sub.credits_balance > 0:
@@ -157,24 +138,14 @@ async def require_professional(
 ) -> User:
     """Dependency that enforces Professional or Enterprise plan.
 
-    Free trial users with remaining credits are allowed through.
+    Admin users and free trial users with remaining credits are allowed through.
     Returns the user if they are on Professional or Enterprise, or Free Trial with credits > 0.
     """
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == current_user.id)
-    )
-    sub = result.scalar_one_or_none()
+    # Admins bypass all plan restrictions
+    if current_user.is_admin:
+        return current_user
 
-    if not sub:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "Subscription required",
-                "message": "Please sign up for a plan to access this feature.",
-                "current_plan": "none",
-                "required_plan": "free_trial",
-            },
-        )
+    sub = await CreditsService.get_or_create_subscription(current_user.id, db)
 
     # Free trial users with credits can access all features
     if sub.plan == "free_trial" and sub.credits_balance > 0:

@@ -10,10 +10,12 @@ from sqlalchemy import select
 
 from db.database import get_db
 from db.models.core import User, UserPreference
+from db.models.billing import Subscription, CreditTransaction, CreditActionType, PlanTier
 from db.config import settings
 from schemas.user import UserCreate, UserResponse, Token, LoginRequest, UpdatePreferencesRequest
 from services.auth_service import get_password_hash, verify_password, create_access_token
-from api.dependencies import get_current_user
+from services.credits_service import PLAN_CREDITS
+from api.dependencies import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +53,29 @@ async def register_user(user_in: UserCreate, db: Annotated[AsyncSession, Depends
             alert_tier="standard"
         )
         db.add(default_preferences)
-        
+
+        # 4. Create free trial subscription with 75 credits
+        free_credits = PLAN_CREDITS[PlanTier.FREE_TRIAL]
+        subscription = Subscription(
+            user_id=new_user.id,
+            plan=PlanTier.FREE_TRIAL.value,
+            credits_balance=free_credits,
+            credits_monthly_quota=free_credits,
+        )
+        db.add(subscription)
+
+        txn = CreditTransaction(
+            user_id=new_user.id,
+            action=CreditActionType.SUBSCRIPTION_CREDIT.value,
+            credits_delta=free_credits,
+            credits_after=free_credits,
+            description="Free trial credits granted on signup",
+        )
+        db.add(txn)
+
         await db.commit()
         await db.refresh(new_user)
+        logger.info(f"New user registered: {new_user.email} with {free_credits} free credits")
         return new_user
     except HTTPException:
         raise
@@ -191,9 +213,29 @@ async def google_sign_in(
             alert_tier="standard"
         )
         db.add(prefs)
+
+        # Create free trial subscription with 75 credits
+        free_credits = PLAN_CREDITS[PlanTier.FREE_TRIAL]
+        subscription = Subscription(
+            user_id=user.id,
+            plan=PlanTier.FREE_TRIAL.value,
+            credits_balance=free_credits,
+            credits_monthly_quota=free_credits,
+        )
+        db.add(subscription)
+
+        txn = CreditTransaction(
+            user_id=user.id,
+            action=CreditActionType.SUBSCRIPTION_CREDIT.value,
+            credits_delta=free_credits,
+            credits_after=free_credits,
+            description="Free trial credits granted on signup",
+        )
+        db.add(txn)
+
         await db.commit()
         await db.refresh(user)
-        logger.info(f"Created new user via Google Sign-In: {email}")
+        logger.info(f"Created new user via Google Sign-In: {email} with {free_credits} free credits")
     
     # 4. Issue our JWT
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -291,3 +333,25 @@ async def update_preferences(
         "firm_phone": prefs.firm_phone,
         "firm_email": prefs.firm_email,
     }
+
+
+# ============ Admin Management ============
+
+class PromoteAdminRequest(BaseModel):
+    email: str
+
+
+@router.post("/admin/promote", dependencies=[Depends(require_admin)])
+async def promote_user_to_admin(
+    request: PromoteAdminRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Promote a user to admin. Only existing admins can do this."""
+    result = await db.execute(select(User).where(User.email == request.email))
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target_user.is_admin = True
+    await db.commit()
+    return {"message": f"{request.email} promoted to admin"}

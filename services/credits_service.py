@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from db.models.billing import (
     Subscription, CreditTransaction, CreditActionType, PlanTier
 )
+from db.models.core import User
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +80,19 @@ class CreditsService:
         user_id, action: CreditActionType, db: AsyncSession, description: str = ""
     ) -> int:
         """Check balance, deduct credits, log transaction.
-        
+
+        Admin users bypass credit deduction entirely.
         Returns remaining balance after deduction.
         Raises HTTP 402 if insufficient credits.
         """
+        # Admin users get unlimited access — no credit deduction
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if user and user.is_admin:
+            logger.info(f"CREDITS: admin user={user_id} action={action.value} — skipped (admin)")
+            sub = await CreditsService.get_or_create_subscription(user_id, db)
+            return sub.credits_balance
+
         sub = await CreditsService.get_or_create_subscription(user_id, db)
         cost = CREDIT_COSTS.get(action, 1)
 
@@ -149,6 +159,11 @@ class CreditsService:
         """Return current balance, plan info, and usage summary."""
         sub = await CreditsService.get_or_create_subscription(user_id, db)
 
+        # Check if user is admin
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        is_admin = user.is_admin if user else False
+
         # Count total credits used this billing cycle
         usage_query = (
             select(func.count(CreditTransaction.id))
@@ -161,11 +176,12 @@ class CreditsService:
         total_actions = usage_result.scalar() or 0
 
         return {
-            "plan": sub.plan,
-            "credits_balance": sub.credits_balance,
+            "plan": "admin" if is_admin else sub.plan,
+            "credits_balance": 999999 if is_admin else sub.credits_balance,
             "credits_monthly_quota": sub.credits_monthly_quota,
             "total_actions_taken": total_actions,
-            "is_active": sub.is_active,
+            "is_active": True if is_admin else sub.is_active,
+            "is_admin": is_admin,
         }
 
     @staticmethod

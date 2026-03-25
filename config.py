@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./micro_saas.db")
 
     # --- API Keys ---
-    OPENAI_API_KEY: str = Field(...)
+    OPENAI_API_KEY: str = Field(default="")
     ANTHROPIC_API_KEY: str = Field(default="")
-    TAVILY_API_KEY: str = Field(...)
+    TAVILY_API_KEY: str = Field(default="")
 
     # --- JWT Auth ---
     SECRET_KEY: str = Field(default="")  # MUST be set in .env — no safe default
@@ -42,6 +42,9 @@ class Settings(BaseSettings):
 
     # --- CORS / Security ---
     ALLOWED_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:5173")
+
+    # --- Admin ---
+    ADMIN_EMAILS: str = Field(default="")  # Comma-separated emails to auto-promote as admin on startup
 
     # --- Storage Backend ---
     STORAGE_BACKEND: str = Field(default="local")  # "local" or "s3"

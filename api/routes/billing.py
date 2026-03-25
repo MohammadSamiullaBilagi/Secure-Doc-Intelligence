@@ -228,23 +228,23 @@ async def get_feature_access(
     db: AsyncSession = Depends(get_db),
 ):
     """Returns feature access matrix for the user's current plan."""
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == current_user.id)
-    )
-    sub = result.scalar_one_or_none()
-    current_plan = sub.plan if sub else "free_trial"
+    # Use get_or_create to ensure subscription exists (auto-creates free trial if missing)
+    sub = await CreditsService.get_or_create_subscription(current_user.id, db)
+    current_plan = sub.plan
     current_rank = _PLAN_ORDER.get(current_plan, 0)
+    credits_balance = sub.credits_balance
 
-    # Get credit balance for credit-gated access check
-    credits_balance = sub.credits_balance if sub else 0
+    # Admins get access to everything
+    is_admin = current_user.is_admin
 
     features = {}
     for key, info in FEATURE_ACCESS.items():
         min_rank = _PLAN_ORDER.get(info["min_plan"], 0)
         is_credit_gated = info.get("credit_gated", False)
 
-        # For credit-gated features, free trial users need credits > 0
-        if is_credit_gated and current_plan == "free_trial":
+        if is_admin:
+            accessible = True
+        elif is_credit_gated and current_plan == "free_trial":
             accessible = credits_balance > 0
         else:
             accessible = current_rank >= min_rank
@@ -256,7 +256,7 @@ async def get_feature_access(
         }
 
     return {
-        "current_plan": current_plan,
+        "current_plan": "admin" if is_admin else current_plan,
         "features": features,
     }
 

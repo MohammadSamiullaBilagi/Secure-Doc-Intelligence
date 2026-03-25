@@ -44,12 +44,15 @@ class BlueprintResponse(BaseModel):
 PROFESSIONAL_PLANS = {"professional", "enterprise"}
 
 
-async def _get_user_plan(user_id, db: AsyncSession) -> str:
+async def _get_user_plan_and_credits(user_id, db: AsyncSession) -> tuple:
+    """Returns (plan, credits_balance) for the user."""
     result = await db.execute(
         select(Subscription).where(Subscription.user_id == user_id)
     )
     sub = result.scalar_one_or_none()
-    return sub.plan if sub else "free_trial"
+    if not sub:
+        return "free_trial", 0
+    return sub.plan, sub.credits_balance
 
 
 @router.get("")
@@ -57,10 +60,12 @@ async def list_blueprints(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ):
-    """List blueprints. Professional+ see system + own blueprints. Free/Starter see empty list."""
-    plan = await _get_user_plan(current_user.id, db)
+    """List blueprints. Professional+ and free_trial with credits see system + own blueprints."""
+    plan, credits = await _get_user_plan_and_credits(current_user.id, db)
 
-    if plan not in PROFESSIONAL_PLANS:
+    # Admins bypass plan restrictions
+    # Allow professional+, OR free_trial users with remaining credits
+    if not current_user.is_admin and plan not in PROFESSIONAL_PLANS and not (plan == "free_trial" and credits > 0):
         return []
 
     query = select(BlueprintModel).where(
@@ -87,14 +92,14 @@ async def create_custom_blueprint(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a custom compliance blueprint. Costs 2 credits. Professional+ only."""
-    plan = await _get_user_plan(current_user.id, db)
-    if plan not in PROFESSIONAL_PLANS:
+    """Create a custom compliance blueprint. Costs 2 credits. Professional+ or free_trial with credits."""
+    plan, credits = await _get_user_plan_and_credits(current_user.id, db)
+    if not current_user.is_admin and plan not in PROFESSIONAL_PLANS and not (plan == "free_trial" and credits > 0):
         raise HTTPException(
             403,
             {
                 "error": "Professional plan required",
-                "message": "Custom blueprints are available on Professional and Enterprise plans.",
+                "message": "Custom blueprints are available on Professional and Enterprise plans, or during your free trial.",
                 "current_plan": plan,
             },
         )
@@ -142,9 +147,9 @@ async def delete_blueprint(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a user's custom blueprint (cannot delete system blueprints). Professional+ only."""
-    plan = await _get_user_plan(current_user.id, db)
-    if plan not in PROFESSIONAL_PLANS:
+    """Delete a user's custom blueprint (cannot delete system blueprints)."""
+    plan, credits = await _get_user_plan_and_credits(current_user.id, db)
+    if not current_user.is_admin and plan not in PROFESSIONAL_PLANS and not (plan == "free_trial" and credits > 0):
         raise HTTPException(
             403,
             {
