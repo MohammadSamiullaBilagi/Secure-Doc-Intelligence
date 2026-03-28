@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # --- Admin ---
     ADMIN_EMAILS: str = Field(default="")  # Comma-separated emails to auto-promote as admin on startup
 
+    # --- Logging ---
+    LOG_LEVEL: str = Field(default="INFO")  # DEBUG, INFO, WARNING, ERROR
+    LOG_FILE: Optional[str] = Field(default=None)  # e.g. "logs/app.log" for persistent file logs
+
+    # --- Password Reset ---
+    PASSWORD_RESET_EXPIRE_MINUTES: int = Field(default=60)  # 1 hour
+    FRONTEND_URL: str = Field(default="http://localhost:5173")  # For reset link in email
+
     # --- Storage Backend ---
     STORAGE_BACKEND: str = Field(default="local")  # "local" or "s3"
     S3_BUCKET: str = Field(default="")

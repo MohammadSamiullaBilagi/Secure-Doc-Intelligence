@@ -12,7 +12,10 @@ from db.database import get_db
 from db.models.core import User, UserPreference
 from db.models.billing import Subscription, CreditTransaction, CreditActionType, PlanTier
 from db.config import settings
-from schemas.user import UserCreate, UserResponse, Token, LoginRequest, UpdatePreferencesRequest
+from schemas.user import (
+    UserCreate, UserResponse, Token, LoginRequest, UpdatePreferencesRequest,
+    ChangePasswordRequest, ForgotPasswordRequest, ResetPasswordRequest,
+)
 from services.auth_service import get_password_hash, verify_password, create_access_token
 from services.credits_service import PLAN_CREDITS
 from api.dependencies import get_current_user, require_admin
@@ -333,6 +336,114 @@ async def update_preferences(
         "firm_phone": prefs.firm_phone,
         "firm_email": prefs.firm_email,
     }
+
+
+# ============ Password Management ============
+
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Change password for authenticated user. Not available for Google-only accounts."""
+    if not current_user.hashed_password:
+        raise HTTPException(status_code=400, detail="Google Sign-In accounts cannot change password")
+
+    if not verify_password(request.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    current_user.hashed_password = get_password_hash(request.new_password)
+    await db.commit()
+    logger.info(f"Password changed for user {current_user.email}")
+    return {"message": "Password changed successfully"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Request a password reset email. Always returns success to avoid leaking emails."""
+    import secrets
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(User).where(User.email == request.email))
+    user = result.scalar_one_or_none()
+
+    # Always return the same message to avoid email enumeration
+    success_msg = {"message": "If this email exists, a reset link has been sent"}
+
+    if not user or not user.hashed_password:
+        return success_msg
+
+    # Generate token and save
+    from db.models.password_reset import PasswordResetToken
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES)
+
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token=token,
+        expires_at=expires_at,
+    )
+    db.add(reset_token)
+    await db.commit()
+
+    # Send email (or log token if SMTP not configured)
+    reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+
+    from services.email_service import EmailService
+    if EmailService.is_configured():
+        EmailService.send_email(
+            to=user.email,
+            subject="Reset Your Password — Legal AI Expert",
+            body_html=(
+                f"<p>You requested a password reset.</p>"
+                f"<p><a href='{reset_link}'>Click here to reset your password</a></p>"
+                f"<p>This link is valid for {settings.PASSWORD_RESET_EXPIRE_MINUTES} minutes.</p>"
+                f"<p>If you didn't request this, you can safely ignore this email.</p>"
+            ),
+        )
+        logger.info(f"Password reset email sent to {user.email}")
+    else:
+        logger.info(f"SMTP not configured. Password reset token for {user.email}: {token}")
+        logger.info(f"Reset link: {reset_link}")
+
+    return success_msg
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Reset password using a valid, unexpired token."""
+    from datetime import datetime, timezone
+    from db.models.password_reset import PasswordResetToken
+
+    result = await db.execute(
+        select(PasswordResetToken)
+        .where(PasswordResetToken.token == request.token)
+        .where(PasswordResetToken.used == False)
+        .where(PasswordResetToken.expires_at > datetime.now(timezone.utc))
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    result = await db.execute(select(User).where(User.id == reset_token.user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.hashed_password = get_password_hash(request.new_password)
+    reset_token.used = True
+    await db.commit()
+    logger.info(f"Password reset completed for user {user.email}")
+    return {"message": "Password reset successfully. You can now log in with your new password."}
 
 
 # ============ Admin Management ============

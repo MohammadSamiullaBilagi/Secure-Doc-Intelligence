@@ -34,6 +34,7 @@ test_ocr_db/
 test_vector_db_v3/
 
 # Logs
+logs/
 *.log
 uvicorn_debug.log
 
