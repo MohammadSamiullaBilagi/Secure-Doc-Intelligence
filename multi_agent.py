@@ -17,6 +17,52 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Module-level singleton for the checkpointer to avoid connection leaks.
+# Each call to get_compiled_graph() was opening new PostgreSQL connections
+# that were never closed, exhausting Cloud SQL's connection slots.
+_checkpointer = None
+_checkpointer_lock = __import__("threading").Lock()
+
+
+def _get_checkpointer():
+    """Return a singleton checkpointer (SqliteSaver or PostgresSaver)."""
+    global _checkpointer
+    if _checkpointer is not None:
+        return _checkpointer
+
+    with _checkpointer_lock:
+        if _checkpointer is not None:
+            return _checkpointer
+
+        if settings.is_sqlite:
+            import sqlite3
+            db_path = Path(settings.checkpointer_db_path).resolve()
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            _checkpointer = SqliteSaver(conn)
+        else:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            import psycopg
+
+            db_url = settings.sync_database_url
+            # Setup requires autocommit because CREATE INDEX CONCURRENTLY
+            # cannot run inside a transaction block.
+            try:
+                setup_conn = psycopg.connect(db_url, autocommit=True)
+                try:
+                    PostgresSaver(setup_conn).setup()
+                finally:
+                    setup_conn.close()
+            except Exception as e:
+                logger.warning(f"Checkpointer setup (may already exist): {e}")
+
+            conn = psycopg.connect(db_url)
+            _checkpointer = PostgresSaver(conn)
+
+        logger.info(f"Checkpointer initialized: {type(_checkpointer).__name__}")
+        return _checkpointer
+
+
 class MultiAgentState(TypedDict):
     session_hash: str
     user_id: str # Explicitly bind the tenant performing the audit
@@ -524,38 +570,8 @@ class ComplianceOrchestrator:
         return builder
     
     def get_compiled_graph(self):
-        """Returns the compiled graph with a checkpointer (SQLite for dev, PostgreSQL for prod)."""
-        from config import settings
-
-        if settings.is_sqlite:
-            from pathlib import Path
-            from langgraph.checkpoint.sqlite import SqliteSaver
-            import sqlite3
-
-            db_path = Path(settings.checkpointer_db_path).resolve()
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(db_path), check_same_thread=False)
-            memory = SqliteSaver(conn)
-        else:
-            from langgraph.checkpoint.postgres import PostgresSaver
-            import psycopg
-
-            db_url = settings.sync_database_url
-            # Setup requires autocommit=True because some migrations use
-            # CREATE INDEX CONCURRENTLY which cannot run in a transaction.
-            try:
-                setup_conn = psycopg.connect(db_url, autocommit=True)
-                try:
-                    PostgresSaver(setup_conn).setup()
-                finally:
-                    setup_conn.close()
-            except Exception as e:
-                logger.warning(f"Checkpointer setup (may already exist): {e}")
-
-            # Normal connection for checkpoint reads/writes
-            conn = psycopg.connect(db_url)
-            memory = PostgresSaver(conn)
-
+        """Returns the compiled graph with a shared singleton checkpointer."""
+        memory = _get_checkpointer()
         builder = self.build_workflow()
         # CRITICAL: This is what tells the graph to pause BEFORE hitting the dispatch node
         return builder.compile(checkpointer=memory, interrupt_before=["dispatch"])
