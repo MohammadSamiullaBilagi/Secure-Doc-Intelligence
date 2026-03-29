@@ -13,6 +13,8 @@ from db.database import get_db
 from db.models.core import User, AuditJob
 from db.models.notices import NoticeJob
 
+from uuid import UUID
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/status", tags=["status"])
@@ -41,6 +43,64 @@ def get_audit_status(thread_id: str) -> dict:
     })
 
 
+async def _resolve_thread_id(thread_id: str, current_user, db: AsyncSession) -> str | None:
+    """Resolve a thread_id to the actual langgraph_thread_id.
+
+    The frontend may send either the langgraph_thread_id directly or a job UUID
+    (notice_job_id / audit_job_id). This helper checks all lookup paths and
+    returns the canonical thread_id used in _audit_status, or None if not found.
+    """
+    # 1. Check AuditJob by langgraph_thread_id
+    result = await db.execute(
+        select(AuditJob).where(
+            AuditJob.user_id == current_user.id,
+            AuditJob.langgraph_thread_id == thread_id,
+        )
+    )
+    if result.scalar_one_or_none():
+        return thread_id
+
+    # 2. Check NoticeJob by langgraph_thread_id
+    result = await db.execute(
+        select(NoticeJob).where(
+            NoticeJob.user_id == current_user.id,
+            NoticeJob.langgraph_thread_id == thread_id,
+        )
+    )
+    if result.scalar_one_or_none():
+        return thread_id
+
+    # 3. Try interpreting thread_id as a job UUID (frontend sends notice_job_id)
+    try:
+        job_uuid = UUID(thread_id)
+    except ValueError:
+        return None
+
+    # Check NoticeJob by id
+    result = await db.execute(
+        select(NoticeJob).where(
+            NoticeJob.user_id == current_user.id,
+            NoticeJob.id == job_uuid,
+        )
+    )
+    notice_job = result.scalar_one_or_none()
+    if notice_job and notice_job.langgraph_thread_id:
+        return notice_job.langgraph_thread_id
+
+    # Check AuditJob by id
+    result = await db.execute(
+        select(AuditJob).where(
+            AuditJob.user_id == current_user.id,
+            AuditJob.id == job_uuid,
+        )
+    )
+    audit_job = result.scalar_one_or_none()
+    if audit_job and audit_job.langgraph_thread_id:
+        return audit_job.langgraph_thread_id
+
+    return None
+
+
 @router.get("/stream/{thread_id}")
 async def stream_audit_status(
     thread_id: str,
@@ -48,7 +108,7 @@ async def stream_audit_status(
     db: AsyncSession = Depends(get_db),
 ):
     """SSE endpoint that streams real-time audit progress to the frontend.
-    
+
     The frontend connects to this and receives live updates like:
     - "Extracting text from document..."
     - "Researcher: Checking GST compliance rules..."
@@ -56,25 +116,13 @@ async def stream_audit_status(
     - "Generating risk report..."
     - "Awaiting your review..."
     """
-    # Verify user owns this thread — check AuditJob first, then NoticeJob
-    query = select(AuditJob).where(
-        AuditJob.user_id == current_user.id,
-        AuditJob.langgraph_thread_id == thread_id,
-    )
-    result = await db.execute(query)
-    job = result.scalar_one_or_none()
-    if not job:
-        # Fallback: check NoticeJob (notice threads use format notice-{user_id}-{job_id})
-        notice_query = select(NoticeJob).where(
-            NoticeJob.user_id == current_user.id,
-            NoticeJob.langgraph_thread_id == thread_id,
-        )
-        notice_result = await db.execute(notice_query)
-        notice_job = notice_result.scalar_one_or_none()
-        if not notice_job:
-            async def error_gen():
-                yield {"event": "error", "data": json.dumps({"message": "Audit not found"})}
-            return EventSourceResponse(error_gen())
+    # Resolve thread_id: frontend may send notice job UUID instead of langgraph_thread_id
+    resolved_thread_id = await _resolve_thread_id(thread_id, current_user, db)
+    if resolved_thread_id is None:
+        async def error_gen():
+            yield {"event": "error", "data": json.dumps({"message": "Audit not found"})}
+        return EventSourceResponse(error_gen())
+    thread_id = resolved_thread_id
 
     async def event_generator():
         """Poll the status dict and yield SSE events."""
@@ -123,19 +171,8 @@ async def get_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Simple polling endpoint — returns current audit status once."""
-    # Verify ownership — check AuditJob first, then NoticeJob
-    query = select(AuditJob).where(
-        AuditJob.user_id == current_user.id,
-        AuditJob.langgraph_thread_id == thread_id,
-    )
-    result = await db.execute(query)
-    if not result.scalar_one_or_none():
-        notice_q = select(NoticeJob).where(
-            NoticeJob.user_id == current_user.id,
-            NoticeJob.langgraph_thread_id == thread_id,
-        )
-        notice_r = await db.execute(notice_q)
-        if not notice_r.scalar_one_or_none():
-            from fastapi import HTTPException
-            raise HTTPException(403, "Not authorized to view this audit status")
-    return get_audit_status(thread_id)
+    resolved_thread_id = await _resolve_thread_id(thread_id, current_user, db)
+    if resolved_thread_id is None:
+        from fastapi import HTTPException
+        raise HTTPException(403, "Not authorized to view this audit status")
+    return get_audit_status(resolved_thread_id)
