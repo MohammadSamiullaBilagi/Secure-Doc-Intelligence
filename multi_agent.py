@@ -538,8 +538,10 @@ class ComplianceOrchestrator:
             memory = SqliteSaver(conn)
         else:
             from langgraph.checkpoint.postgres import PostgresSaver
+            import psycopg2
 
-            memory = PostgresSaver.from_conn_string(settings.sync_database_url)
+            conn = psycopg2.connect(settings.sync_database_url)
+            memory = PostgresSaver(conn)
             memory.setup()  # Creates checkpoint tables if they don't exist
 
         builder = self.build_workflow()
