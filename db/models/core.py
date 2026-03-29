@@ -83,6 +83,9 @@ class Blueprint(Base, TimestampMixin):
     # Stores the JSON array of checks: [{"focus": "...", "rule": "..."}]
     rules_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=list)
 
+    # "audit" or "notice" — distinguishes audit blueprints from notice blueprints
+    category: Mapped[str] = mapped_column(String(20), nullable=False, server_default="audit", default="audit")
+
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="blueprints")
 

@@ -74,9 +74,10 @@ class BlueprintService:
 
     @classmethod
     async def seed_system_blueprints(cls, db):
-        """Load all blueprints/*.json files into DB as system records (user_id=NULL).
+        """Load all blueprints/*.json and blueprints/notices/*.json into DB as system records.
 
         Idempotent — skips any blueprint whose name already exists as a system record.
+        Audit blueprints get category="audit", notice blueprints get category="notice".
         """
         from sqlalchemy import select
         from db.models.core import Blueprint as BlueprintModel
@@ -85,12 +86,26 @@ class BlueprintService:
             logger.warning("Blueprints directory not found, skipping seed.")
             return
 
-        json_files = [f for f in cls.BLUEPRINT_DIR.iterdir() if f.suffix == ".json" and f.is_file()]
-        seeded = 0
+        # Collect audit blueprints (top-level) and notice blueprints (notices/ subdir)
+        blueprint_files = []
+        for f in cls.BLUEPRINT_DIR.iterdir():
+            if f.suffix == ".json" and f.is_file():
+                blueprint_files.append((f, "audit"))
 
-        for json_file in json_files:
+        notices_dir = cls.BLUEPRINT_DIR / "notices"
+        if notices_dir.exists():
+            for f in notices_dir.iterdir():
+                if f.suffix == ".json" and f.is_file():
+                    blueprint_files.append((f, "notice"))
+
+        seeded = 0
+        updated = 0
+
+        for json_file, category in blueprint_files:
             try:
-                bp = cls.load_blueprint(json_file.name)
+                with open(json_file, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                bp = Blueprint(**data)
 
                 # Check if system blueprint with this name already exists
                 result = await db.execute(
@@ -101,6 +116,10 @@ class BlueprintService:
                 )
                 existing = result.scalar_one_or_none()
                 if existing:
+                    # Ensure category is correct on existing blueprints
+                    if getattr(existing, 'category', 'audit') != category:
+                        existing.category = category
+                        updated += 1
                     continue
 
                 new_bp = BlueprintModel(
@@ -108,12 +127,13 @@ class BlueprintService:
                     name=bp.name,
                     description=bp.description,
                     rules_json=[check.model_dump() for check in bp.checks],
+                    category=category,
                 )
                 db.add(new_bp)
                 seeded += 1
             except Exception as e:
                 logger.error(f"Failed to seed blueprint {json_file.name}: {e}")
 
-        if seeded > 0:
+        if seeded > 0 or updated > 0:
             await db.commit()
-        logger.info(f"System blueprints verified/seeded: {seeded} new, {len(json_files)} total on disk.")
+        logger.info(f"System blueprints: {seeded} new, {updated} updated, {len(blueprint_files)} total on disk.")

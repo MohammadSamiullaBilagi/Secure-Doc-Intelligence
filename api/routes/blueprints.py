@@ -28,6 +28,7 @@ class CreateBlueprintRequest(BaseModel):
     name: str
     description: str
     checks: List[BlueprintCheckInput]
+    category: str = "audit"  # "audit" or "notice"
 
 
 class BlueprintResponse(BaseModel):
@@ -59,8 +60,12 @@ async def _get_user_plan_and_credits(user_id, db: AsyncSession) -> tuple:
 async def list_blueprints(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
+    category: Optional[str] = None,
 ):
-    """List blueprints. Professional+ and free_trial with credits see system + own blueprints."""
+    """List blueprints. Professional+ and free_trial with credits see system + own blueprints.
+
+    Optional ?category=audit or ?category=notice to filter by type.
+    """
     plan, credits = await _get_user_plan_and_credits(current_user.id, db)
 
     # Admins bypass plan restrictions
@@ -71,6 +76,8 @@ async def list_blueprints(
     query = select(BlueprintModel).where(
         (BlueprintModel.user_id == current_user.id) | (BlueprintModel.user_id.is_(None))
     )
+    if category:
+        query = query.where(BlueprintModel.category == category)
     result = await db.execute(query)
     blueprints = result.scalars().all()
 
@@ -81,6 +88,7 @@ async def list_blueprints(
             "description": bp.description,
             "checks_count": len(bp.rules_json) if bp.rules_json else 0,
             "is_system": bp.user_id is None,
+            "category": getattr(bp, 'category', 'audit'),
         }
         for bp in blueprints
     ]
@@ -104,6 +112,9 @@ async def create_custom_blueprint(
             },
         )
 
+    if request.category not in ("audit", "notice"):
+        raise HTTPException(400, "category must be 'audit' or 'notice'")
+
     if not request.checks or len(request.checks) == 0:
         raise HTTPException(400, "Blueprint must have at least one check")
 
@@ -126,6 +137,7 @@ async def create_custom_blueprint(
         name=request.name,
         description=request.description,
         rules_json=rules_json,
+        category=request.category,
     )
     db.add(new_bp)
     await db.commit()
@@ -137,6 +149,7 @@ async def create_custom_blueprint(
         "name": new_bp.name,
         "description": new_bp.description,
         "checks_count": len(rules_json),
+        "category": new_bp.category,
         "message": f"Blueprint '{new_bp.name}' created with {len(rules_json)} checks",
     }
 

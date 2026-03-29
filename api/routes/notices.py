@@ -21,10 +21,11 @@ from services.notice_service import NoticeService
 from services.report_service import ReportService
 from services.storage import get_storage
 from ingestion import DocumentProcessor
+from db.models.core import Blueprint as BlueprintModel
 from schemas.notice_schema import (
     NoticeUploadResponse, NoticeDetailResponse, NoticeListItem,
     NoticeApproveRequest, NoticeRegenerateRequest,
-    NOTICE_TYPE_DISPLAY, VALID_NOTICE_TYPES,
+    NOTICE_TYPE_DISPLAY, VALID_NOTICE_TYPES, CUSTOM_NOTICE_TYPE,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,18 +55,36 @@ async def upload_notice(
     notice_file: UploadFile = File(...),
     notice_type: str = Form(...),
     client_id: Optional[str] = Form(None),
+    notice_blueprint_id: Optional[str] = Form(None),
     supporting_files: List[UploadFile] = File(default=[]),
 ):
     """Upload a notice PDF + optional supporting docs. Triggers background draft generation."""
-    if notice_type not in VALID_NOTICE_TYPES:
+    # Resolve notice type: custom blueprint or system type
+    resolved_blueprint_name = None
+    if notice_blueprint_id:
+        # Custom blueprint mode — validate it exists and user has access
+        bp_result = await db.execute(
+            select(BlueprintModel).where(
+                BlueprintModel.id == UUID(notice_blueprint_id),
+                BlueprintModel.category == "notice",
+                (BlueprintModel.user_id == current_user.id) | (BlueprintModel.user_id.is_(None)),
+            )
+        )
+        bp = bp_result.scalar_one_or_none()
+        if not bp:
+            raise HTTPException(400, "Custom notice blueprint not found or access denied")
+        notice_type = CUSTOM_NOTICE_TYPE
+        resolved_blueprint_name = bp.name
+    elif notice_type not in VALID_NOTICE_TYPES:
         raise HTTPException(400, f"Invalid notice_type. Must be one of: {', '.join(VALID_NOTICE_TYPES)}")
 
     # Deduct credits
+    display_name = resolved_blueprint_name or NOTICE_TYPE_DISPLAY.get(notice_type, notice_type)
     await CreditsService.check_and_deduct(
         current_user.id,
         CreditActionType.NOTICE_REPLY,
         db,
-        description=f"Notice reply: {NOTICE_TYPE_DISPLAY.get(notice_type, notice_type)}",
+        description=f"Notice reply: {display_name}",
     )
 
     data_dir, db_dir = _get_notice_paths(str(current_user.id))
@@ -136,6 +155,8 @@ async def upload_notice(
         supporting_documents=supporting_doc_names,
         status="uploaded",
         langgraph_thread_id=thread_id,
+        notice_blueprint_id=UUID(notice_blueprint_id) if notice_blueprint_id else None,
+        notice_blueprint_name=resolved_blueprint_name,
     )
     db.add(notice_job)
     await db.commit()
@@ -185,7 +206,7 @@ async def list_notices(
         {
             "id": str(j.id),
             "notice_type": j.notice_type,
-            "notice_type_display": NOTICE_TYPE_DISPLAY.get(j.notice_type, j.notice_type),
+            "notice_type_display": j.notice_blueprint_name or NOTICE_TYPE_DISPLAY.get(j.notice_type, j.notice_type),
             "notice_document_name": j.notice_document_name,
             "status": j.status,
             "client_id": str(j.client_id) if j.client_id else None,
@@ -215,7 +236,7 @@ async def get_notice_detail(
     return {
         "id": str(job.id),
         "notice_type": job.notice_type,
-        "notice_type_display": NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type),
+        "notice_type_display": job.notice_blueprint_name or NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type),
         "notice_document_name": job.notice_document_name,
         "supporting_documents": job.supporting_documents,
         "status": job.status,
@@ -264,9 +285,27 @@ async def regenerate_notice(
     current_user: Annotated[User, Depends(require_professional)],
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-generate draft with a different notice type. Costs 1 credit (no re-upload)."""
-    if request.notice_type not in VALID_NOTICE_TYPES:
-        raise HTTPException(400, f"Invalid notice_type. Must be one of: {', '.join(VALID_NOTICE_TYPES)}")
+    """Re-generate draft with a different notice type or custom blueprint. Costs 1 credit."""
+    # Resolve: custom blueprint or system type
+    regen_blueprint_id = request.notice_blueprint_id
+    regen_notice_type = request.notice_type
+    regen_display_name = None
+
+    if regen_blueprint_id:
+        bp_result = await db.execute(
+            select(BlueprintModel).where(
+                BlueprintModel.id == UUID(regen_blueprint_id),
+                BlueprintModel.category == "notice",
+                (BlueprintModel.user_id == current_user.id) | (BlueprintModel.user_id.is_(None)),
+            )
+        )
+        bp = bp_result.scalar_one_or_none()
+        if not bp:
+            raise HTTPException(400, "Custom notice blueprint not found or access denied")
+        regen_notice_type = CUSTOM_NOTICE_TYPE
+        regen_display_name = bp.name
+    elif not regen_notice_type or regen_notice_type not in VALID_NOTICE_TYPES:
+        raise HTTPException(400, f"Provide a valid notice_type or notice_blueprint_id. Valid types: {', '.join(VALID_NOTICE_TYPES)}")
 
     result = await db.execute(
         select(NoticeJob).where(
@@ -278,12 +317,18 @@ async def regenerate_notice(
     if not job:
         raise HTTPException(404, "Notice job not found")
 
+    # Update blueprint name on the job
+    job.notice_blueprint_name = regen_display_name
+    job.notice_blueprint_id = UUID(regen_blueprint_id) if regen_blueprint_id else None
+    await db.commit()
+
     # Deduct 1 credit for regeneration
+    display = regen_display_name or NOTICE_TYPE_DISPLAY.get(regen_notice_type, regen_notice_type)
     await CreditsService.check_and_deduct(
         current_user.id,
         CreditActionType.NOTICE_REGENERATE,
         db,
-        description=f"Notice regenerate: {NOTICE_TYPE_DISPLAY.get(request.notice_type, request.notice_type)}",
+        description=f"Notice regenerate: {display}",
     )
 
     data_dir, db_dir = _get_notice_paths(str(current_user.id))
@@ -292,15 +337,17 @@ async def regenerate_notice(
     background_tasks.add_task(
         NoticeService.regenerate_notice,
         str(job.id),
-        request.notice_type,
+        regen_notice_type,
         str(db_dir),
         str(data_dir),
         regen_thread_id,
+        regen_blueprint_id,
     )
 
     return {
-        "message": "Regeneration started with new notice type",
-        "notice_type": request.notice_type,
+        "message": "Regeneration started",
+        "notice_type": regen_notice_type,
+        "notice_type_display": display,
         "status": "extracting",
     }
 
@@ -351,7 +398,7 @@ async def download_notice_pdf(
             "firm_email": prefs.firm_email,
         }
 
-    notice_type_display = NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type)
+    notice_type_display = job.notice_blueprint_name or NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type)
     pdf_buffer = ReportService.generate_notice_reply_pdf(
         notice_type_display=notice_type_display,
         reply_text=job.final_reply,

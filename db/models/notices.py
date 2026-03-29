@@ -30,6 +30,12 @@ class NoticeJob(Base, TimestampMixin):
     draft_reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     final_reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Custom notice blueprint (NULL for system notice types)
+    notice_blueprint_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("blueprints.id", ondelete="SET NULL"), nullable=True
+    )
+    notice_blueprint_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="notice_jobs")
     client: Mapped[Optional["Client"]] = relationship("Client")

@@ -23,6 +23,7 @@ NOTICE_BLUEPRINT_MAP = {
     "156": "blueprints/notices/notice_156_blueprint.json",
     "traces": "blueprints/notices/notice_traces_blueprint.json",
     "26qb": "blueprints/notices/notice_26qb_blueprint.json",
+    "other": "blueprints/notices/notice_other_blueprint.json",
 }
 
 LEGAL_REPLY_PROMPT = """You are an experienced Indian tax practitioner drafting a formal reply to a {notice_type_display} notice.
@@ -54,6 +55,7 @@ NOTICE_SECTION_MAP = {
     "156": "156",
     "traces": "200A/201",
     "26qb": "194IA",
+    "other": "General",
 }
 
 
@@ -193,6 +195,28 @@ class NoticeService:
             return json.load(f)
 
     @staticmethod
+    async def _load_custom_notice_blueprint(blueprint_id: str) -> dict:
+        """Load a custom notice blueprint from the database."""
+        from db.models.core import Blueprint as BlueprintModel
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(BlueprintModel).where(
+                    BlueprintModel.id == UUID(blueprint_id),
+                    BlueprintModel.category == "notice",
+                )
+            )
+            bp = result.scalar_one_or_none()
+            if not bp:
+                raise ValueError(f"Custom notice blueprint not found: {blueprint_id}")
+            return {
+                "blueprint_id": str(bp.id),
+                "name": bp.name,
+                "description": bp.description or "",
+                "checks": bp.rules_json or [],
+            }
+
+    @staticmethod
     def _run_extraction(vector_db_path: str, blueprint_dict: dict, notice_filename: str, data_dir: str = None) -> dict:
         """Run synchronous extraction using SecureDocAgent (called via asyncio.to_thread)."""
         from agent import SecureDocAgent
@@ -225,8 +249,12 @@ class NoticeService:
         """Generate a draft reply using LLM (called via asyncio.to_thread)."""
         from langchain_openai import ChatOpenAI
 
-        notice_type_display = NOTICE_TYPE_DISPLAY.get(notice_type, notice_type)
-        section = NOTICE_SECTION_MAP.get(notice_type, notice_type)
+        if notice_type == "custom" and blueprint_dict:
+            notice_type_display = blueprint_dict.get("name", "Custom Notice")
+            section = "as referenced in the notice"
+        else:
+            notice_type_display = NOTICE_TYPE_DISPLAY.get(notice_type, notice_type)
+            section = NOTICE_SECTION_MAP.get(notice_type, notice_type)
 
         # Build notice details header from extracted notice_summary
         summary = extracted_data.get("notice_summary", {}) if extracted_data else {}
@@ -300,7 +328,11 @@ class NoticeService:
                 await db.commit()
                 update_audit_status(thread_id, "extracting", "Extracting key information from notice...", 20)
 
-                blueprint_dict = NoticeService._load_notice_blueprint(job.notice_type)
+                # Load blueprint: custom (from DB) or system (from disk)
+                if job.notice_blueprint_id:
+                    blueprint_dict = await NoticeService._load_custom_notice_blueprint(str(job.notice_blueprint_id))
+                else:
+                    blueprint_dict = NoticeService._load_notice_blueprint(job.notice_type)
 
                 extracted = await asyncio.to_thread(
                     NoticeService._run_extraction,
@@ -345,8 +377,8 @@ class NoticeService:
                 update_audit_status(thread_id, "error", f"Processing failed: {str(e)}", 0)
 
     @staticmethod
-    async def regenerate_notice(notice_job_id: str, new_notice_type: str, vector_db_path: str, data_dir: str = None, thread_id: str = None):
-        """Re-generate draft with a different notice type. Reuses existing embeddings."""
+    async def regenerate_notice(notice_job_id: str, new_notice_type: str, vector_db_path: str, data_dir: str = None, thread_id: str = None, notice_blueprint_id: str = None):
+        """Re-generate draft with a different notice type or custom blueprint. Reuses existing embeddings."""
         from api.routes.status import update_audit_status
 
         async with AsyncSessionLocal() as db:
@@ -363,12 +395,17 @@ class NoticeService:
 
             try:
                 job.notice_type = new_notice_type
+                job.notice_blueprint_id = UUID(notice_blueprint_id) if notice_blueprint_id else None
                 job.status = "extracting"
                 await db.commit()
 
                 update_audit_status(thread_id, "extracting", "Re-extracting with new notice type...", 20)
 
-                blueprint_dict = NoticeService._load_notice_blueprint(new_notice_type)
+                # Load blueprint: custom (from DB) or system (from disk)
+                if notice_blueprint_id:
+                    blueprint_dict = await NoticeService._load_custom_notice_blueprint(notice_blueprint_id)
+                else:
+                    blueprint_dict = NoticeService._load_notice_blueprint(new_notice_type)
 
                 extracted = await asyncio.to_thread(
                     NoticeService._run_extraction,

@@ -38,7 +38,8 @@ class NoticeApproveRequest(BaseModel):
 
 
 class NoticeRegenerateRequest(BaseModel):
-    notice_type: str
+    notice_type: Optional[str] = None
+    notice_blueprint_id: Optional[str] = None
 
 
 NOTICE_TYPE_DISPLAY = {
@@ -50,6 +51,10 @@ NOTICE_TYPE_DISPLAY = {
     "156": "Section 156 Tax Demand",
     "traces": "TRACES TDS Default Notice",
     "26qb": "Section 194IA Property TDS Notice",
+    "other": "Other / Generic Notice",
 }
 
 VALID_NOTICE_TYPES = set(NOTICE_TYPE_DISPLAY.keys())
+
+# Sentinel value for custom blueprint-based notice processing
+CUSTOM_NOTICE_TYPE = "custom"

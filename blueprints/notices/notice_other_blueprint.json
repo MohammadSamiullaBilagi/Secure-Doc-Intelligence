@@ -1,0 +1,37 @@
+{
+  "blueprint_id": "NOTICE_OTHER",
+  "name": "Generic Notice / Order Analysis",
+  "description": "Catch-all extraction for unrecognized or miscellaneous tax notices, orders, or communications from any authority (Income Tax, GST, Municipal, etc.).",
+  "checks": [
+    {
+      "check_id": "NOTH_01",
+      "focus": "Extract issuing authority, office, and jurisdiction",
+      "rule": "Identify the name and designation of the issuing officer, the office or department (e.g., Income Tax, GST, Municipal, Customs), and the jurisdiction or ward/circle/range."
+    },
+    {
+      "check_id": "NOTH_02",
+      "focus": "Extract demand amount and payment details",
+      "rule": "Identify any demand amount, tax liability, penalty, interest, or fee mentioned. Extract exact figures with their breakdown (tax, interest, penalty, cess) if available. Note the currency and whether the amount is a demand or refund."
+    },
+    {
+      "check_id": "NOTH_03",
+      "focus": "Extract response deadline and hearing date",
+      "rule": "Identify the deadline for response or compliance and any personal hearing date or adjournment date. Note whether it is a hard statutory deadline or an administrative one. Extract the exact date in DD/MM/YYYY format if available."
+    },
+    {
+      "check_id": "NOTH_04",
+      "focus": "Identify key allegations, grounds, or subject matter",
+      "rule": "List all specific allegations, charges, grounds of demand, or the subject matter of the notice. Identify every legal section, rule, or regulation cited. Extract the nature of non-compliance alleged (e.g., mismatch, non-filing, short payment, evasion)."
+    },
+    {
+      "check_id": "NOTH_05",
+      "focus": "Extract response requirements and compliance actions",
+      "rule": "Identify what the taxpayer or assessee is required to do: submit documents, appear in person, pay demand, file a reply, furnish returns, produce books of account, etc. List all specific requirements and the format or mode of compliance."
+    },
+    {
+      "check_id": "NOTH_06",
+      "focus": "Extract taxpayer identification and assessment details",
+      "rule": "Extract the taxpayer's PAN, GSTIN, TAN, CIN, or other identification number, their legal name, trade name (if different), address, and the assessment year, financial year, or tax period referenced in the notice."
+    }
+  ]
+}
