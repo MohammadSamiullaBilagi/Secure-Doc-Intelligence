@@ -540,9 +540,21 @@ class ComplianceOrchestrator:
             from langgraph.checkpoint.postgres import PostgresSaver
             import psycopg
 
-            conn = psycopg.connect(settings.sync_database_url)
+            db_url = settings.sync_database_url
+            # Setup requires autocommit=True because some migrations use
+            # CREATE INDEX CONCURRENTLY which cannot run in a transaction.
+            try:
+                setup_conn = psycopg.connect(db_url, autocommit=True)
+                try:
+                    PostgresSaver(setup_conn).setup()
+                finally:
+                    setup_conn.close()
+            except Exception as e:
+                logger.warning(f"Checkpointer setup (may already exist): {e}")
+
+            # Normal connection for checkpoint reads/writes
+            conn = psycopg.connect(db_url)
             memory = PostgresSaver(conn)
-            memory.setup()  # Creates checkpoint tables if they don't exist
 
         builder = self.build_workflow()
         # CRITICAL: This is what tells the graph to pause BEFORE hitting the dispatch node
