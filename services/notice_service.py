@@ -280,6 +280,8 @@ class NoticeService:
         """
         from api.routes.status import update_audit_status
 
+        logger.info(f"[NOTICE] Background task started for job {notice_job_id}, thread_id={thread_id}")
+
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(NoticeJob).where(NoticeJob.id == UUID(notice_job_id))

@@ -162,12 +162,24 @@ async def list_notices(
     db: AsyncSession = Depends(get_db),
 ):
     """List all notice jobs for the current user."""
+    from datetime import datetime, timedelta
+
     result = await db.execute(
         select(NoticeJob)
         .where(NoticeJob.user_id == current_user.id)
         .order_by(NoticeJob.created_at.desc())
     )
     jobs = result.scalars().all()
+
+    # Auto-mark jobs stuck in "extracting" for >10 minutes as error (orphaned jobs)
+    stale_threshold = datetime.utcnow() - timedelta(minutes=10)
+    any_stale = False
+    for j in jobs:
+        if j.status == "extracting" and j.updated_at and j.updated_at.replace(tzinfo=None) < stale_threshold:
+            j.status = "error"
+            any_stale = True
+    if any_stale:
+        await db.commit()
 
     return [
         {

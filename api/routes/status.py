@@ -12,9 +12,6 @@ from api.dependencies import get_current_user
 from db.database import get_db
 from db.models.core import User, AuditJob
 from db.models.notices import NoticeJob
-from api.routes.documents import get_session_paths
-from multi_agent import ComplianceOrchestrator
-from services.approval_service import ApprovalService
 
 logger = logging.getLogger(__name__)
 
