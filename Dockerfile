@@ -41,12 +41,9 @@ RUN mkdir -p user_sessions global_vector_db Database blueprints
 
 EXPOSE 8000
 
-# Run with gunicorn + uvicorn workers
+# Run Alembic migrations then start gunicorn
 # --timeout 300: LLM-based audit/reconciliation can take minutes
 # --workers 1: prevents duplicate APScheduler jobs; scale via container replicas
-CMD ["gunicorn", "main:app", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "1", \
-     "--bind", "0.0.0.0:8000", \
-     "--timeout", "300", \
-     "--graceful-timeout", "30"]
+COPY entrypoint.sh /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+CMD ["/app/entrypoint.sh"]
