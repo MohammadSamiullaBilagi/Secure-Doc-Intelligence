@@ -120,6 +120,7 @@ class BlueprintService:
                     if getattr(existing, 'category', 'audit') != category:
                         existing.category = category
                         updated += 1
+                        await db.commit()
                     continue
 
                 new_bp = BlueprintModel(
@@ -130,10 +131,10 @@ class BlueprintService:
                     category=category,
                 )
                 db.add(new_bp)
+                await db.commit()
                 seeded += 1
             except Exception as e:
                 logger.error(f"Failed to seed blueprint {json_file.name}: {e}")
+                await db.rollback()
 
-        if seeded > 0 or updated > 0:
-            await db.commit()
         logger.info(f"System blueprints: {seeded} new, {updated} updated, {len(blueprint_files)} total on disk.")
