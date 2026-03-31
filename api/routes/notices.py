@@ -243,7 +243,9 @@ async def get_notice_detail(
         "status": job.status,
         "extracted_data": job.extracted_data,
         "draft_reply": job.draft_reply,
+        "draft_reply_html": job.draft_reply.replace("\n", "<br>") if job.draft_reply else None,
         "final_reply": job.final_reply,
+        "final_reply_html": job.final_reply.replace("\n", "<br>") if job.final_reply else None,
         "client_id": str(job.client_id) if job.client_id else None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }

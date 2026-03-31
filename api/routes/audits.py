@@ -24,6 +24,7 @@ class PendingAuditResponse(BaseModel):
     risk_report: str
     requires_action: bool
     email_draft: Optional[str] = None
+    email_draft_html: Optional[str] = None
     client_id: Optional[str] = None
     client_name: Optional[str] = None
     blueprint_name: Optional[str] = None
@@ -83,13 +84,15 @@ async def fetch_pending_tasks(
                 )
                 client_name = client_result.scalar_one_or_none()
 
+            raw_draft = remediation.get("email_body", "") if requires_action else None
             pending_responses.append(
                 PendingAuditResponse(
                     thread_id=job.langgraph_thread_id,
                     document_name=job.document_name,
                     risk_report=pending_state.get("risk_report", ""),
                     requires_action=requires_action,
-                    email_draft=remediation.get("email_body", "") if requires_action else None,
+                    email_draft=raw_draft,
+                    email_draft_html=raw_draft.replace("\n", "<br>") if raw_draft else None,
                     client_id=str(job.client_id) if job.client_id else None,
                     client_name=client_name,
                     blueprint_name=job.blueprint_name,
