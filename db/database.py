@@ -26,11 +26,12 @@ engine_args = {}
 if settings.is_sqlite:
     engine_args["connect_args"] = {"check_same_thread": False}
 else:
-    # PostgreSQL connection pool settings
-    engine_args["pool_size"] = 10
-    engine_args["max_overflow"] = 20
+    # PostgreSQL connection pool settings (db-f1-micro allows max 25 connections)
+    engine_args["pool_size"] = 5
+    engine_args["max_overflow"] = 10
     engine_args["pool_pre_ping"] = True
     engine_args["pool_recycle"] = 1800  # Recycle stale connections every 30 minutes
+    engine_args["pool_timeout"] = 30  # Wait up to 30s for a connection before erroring
 
 engine = create_async_engine(
     settings.DATABASE_URL,
