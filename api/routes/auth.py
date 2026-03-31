@@ -2,11 +2,13 @@ from datetime import timedelta
 from typing import Annotated
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+from api.rate_limit import limiter
 
 from db.database import get_db
 from db.models.core import User, UserPreference
@@ -30,7 +32,8 @@ class GoogleAuthRequest(BaseModel):
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register_user(user_in: UserCreate, db: Annotated[AsyncSession, Depends(get_db)]):
+@limiter.limit("10/minute")
+async def register_user(request: Request, user_in: UserCreate, db: Annotated[AsyncSession, Depends(get_db)]):
     """Registers a new User and seeds their default notification preferences."""
     import traceback
     try:
@@ -88,7 +91,9 @@ async def register_user(user_in: UserCreate, db: Annotated[AsyncSession, Depends
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 async def login_for_access_token(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
@@ -131,7 +136,9 @@ async def login_for_access_token(
 
 
 @router.post("/json-login", response_model=Token)
+@limiter.limit("10/minute")
 async def json_login(
+    request: Request,
     credentials: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
@@ -171,8 +178,10 @@ async def json_login(
 
 
 @router.post("/google", response_model=Token)
+@limiter.limit("10/minute")
 async def google_sign_in(
-    request: GoogleAuthRequest,
+    request: Request,
+    body: GoogleAuthRequest,
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
     """Authenticate via Google ID token. Creates account on first sign-in."""
@@ -185,7 +194,7 @@ async def google_sign_in(
     # 1. Verify the Google ID token
     try:
         idinfo = id_token.verify_oauth2_token(
-            request.credential,
+            body.credential,
             google_requests.Request(),
             settings.GOOGLE_CLIENT_ID
         )

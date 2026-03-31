@@ -56,6 +56,51 @@ async def _get_user_plan_and_credits(user_id, db: AsyncSession) -> tuple:
     return sub.plan, sub.credits_balance
 
 
+@router.get("/access")
+async def check_blueprint_access(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Check if the current user can access blueprints.
+
+    Returns access status so the frontend can decide whether to show
+    the blueprint selector or an upgrade prompt.
+    """
+    if current_user.is_admin:
+        return {
+            "has_access": True,
+            "reason": "admin",
+            "plan": "enterprise",
+            "credits_balance": 999999,
+        }
+
+    plan, credits = await _get_user_plan_and_credits(current_user.id, db)
+
+    if plan in PROFESSIONAL_PLANS:
+        return {
+            "has_access": True,
+            "reason": plan,
+            "plan": plan,
+            "credits_balance": credits,
+        }
+
+    if plan == "free_trial" and credits > 0:
+        return {
+            "has_access": True,
+            "reason": "free_trial_with_credits",
+            "plan": plan,
+            "credits_balance": credits,
+        }
+
+    # Credits exhausted or starter plan without blueprint access
+    return {
+        "has_access": False,
+        "reason": "credits_exhausted" if plan == "free_trial" else "upgrade_required",
+        "plan": plan,
+        "credits_balance": credits,
+    }
+
+
 @router.get("")
 async def list_blueprints(
     current_user: Annotated[User, Depends(get_current_user)],

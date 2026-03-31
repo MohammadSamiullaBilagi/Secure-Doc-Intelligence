@@ -9,10 +9,11 @@ logger = logging.getLogger(__name__)
 
 from api.dependencies import get_current_user
 from db.database import get_db
-from db.models.core import User, AuditJob
+from db.models.core import User, AuditJob, UserPreference
 from db.models.clients import Client
 from multi_agent import ComplianceOrchestrator
 from services.approval_service import ApprovalService
+from services.email_service import EmailService
 from api.routes.documents import get_session_paths
 
 router = APIRouter(prefix="/api/v1/audits", tags=["audits"])
@@ -142,13 +143,62 @@ async def approve_audit_task(
         orchestrator = ComplianceOrchestrator(db_dir=str(db_dir))
         approval_svc = ApprovalService(orchestrator)
         approval_svc.approve_and_resume(thread_id, request.edited_draft)
-        
+
         # 3. Mark ALL matching jobs done (handles duplicate uploads)
         for j in jobs:
             j.status = "dispatched"
         await db.commit()
-        
-        return {"status": "success", "message": "Approved and Dispatched"}
+
+        # 4. Send email to client
+        email_sent = False
+        email_error = None
+
+        if job.client_id:
+            client_result = await db.execute(
+                select(Client).where(Client.id == job.client_id)
+            )
+            client = client_result.scalar_one_or_none()
+
+            if client and client.email:
+                # Fetch CA branding
+                pref_result = await db.execute(
+                    select(UserPreference).where(UserPreference.user_id == current_user.id)
+                )
+                prefs = pref_result.scalar_one_or_none()
+                ca_name = prefs.ca_name if prefs else None
+                firm_name = prefs.firm_name if prefs else None
+                reply_to = prefs.firm_email if prefs else None
+
+                subject = f"Compliance Audit Report: {job.document_name}"
+                if firm_name:
+                    subject += f" — {firm_name}"
+
+                try:
+                    email_sent = EmailService.send_audit_dispatch(
+                        to=client.email,
+                        ca_name=ca_name or firm_name or "",
+                        subject=subject,
+                        body=request.edited_draft,
+                        reply_to=reply_to,
+                    )
+                    if not email_sent:
+                        email_error = "SMTP send failed — check server SMTP configuration"
+                except Exception as email_exc:
+                    logger.error(f"Failed to send audit email to {client.email}: {email_exc}")
+                    email_error = str(email_exc)
+            elif client and not client.email:
+                email_error = "Client has no email address on file"
+            else:
+                email_error = "Client not found"
+        else:
+            email_error = "No client associated with this audit"
+
+        return {
+            "status": "success",
+            "message": "Approved and Dispatched",
+            "email_sent": email_sent,
+            "email_error": email_error,
+        }
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

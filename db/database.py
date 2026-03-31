@@ -30,6 +30,7 @@ else:
     engine_args["pool_size"] = 10
     engine_args["max_overflow"] = 20
     engine_args["pool_pre_ping"] = True
+    engine_args["pool_recycle"] = 1800  # Recycle stale connections every 30 minutes
 
 engine = create_async_engine(
     settings.DATABASE_URL,

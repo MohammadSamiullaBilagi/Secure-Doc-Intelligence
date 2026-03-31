@@ -19,6 +19,7 @@ from db.models.billing import CreditActionType
 from services.credits_service import CreditsService
 from services.notice_service import NoticeService
 from services.report_service import ReportService
+from services.email_service import EmailService
 from services.storage import get_storage
 from ingestion import DocumentProcessor
 from db.models.core import Blueprint as BlueprintModel
@@ -274,7 +275,55 @@ async def approve_notice(
     job.status = "approved"
     await db.commit()
 
-    return {"message": "Notice reply approved and finalized", "status": "approved"}
+    # --- Send email to client ---
+    email_sent = False
+    email_error = None
+
+    if job.client_id:
+        client_result = await db.execute(
+            select(Client).where(Client.id == job.client_id)
+        )
+        client = client_result.scalar_one_or_none()
+
+        if client and client.email:
+            # Fetch CA branding for email
+            pref_result = await db.execute(
+                select(UserPreference).where(UserPreference.user_id == current_user.id)
+            )
+            prefs = pref_result.scalar_one_or_none()
+            ca_name = prefs.ca_name if prefs else None
+            firm_name = prefs.firm_name if prefs else None
+            reply_to = prefs.firm_email if prefs else None
+
+            notice_type_display = job.notice_blueprint_name or NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type)
+
+            try:
+                email_sent = EmailService.send_notice_reply(
+                    to=client.email,
+                    notice_type_display=notice_type_display,
+                    reply_body=job.final_reply,
+                    ca_name=ca_name,
+                    firm_name=firm_name,
+                    reply_to=reply_to,
+                )
+                if not email_sent:
+                    email_error = "SMTP send failed — check server SMTP configuration"
+            except Exception as e:
+                logger.error(f"Failed to send notice reply email to {client.email}: {e}")
+                email_error = str(e)
+        elif client and not client.email:
+            email_error = "Client has no email address on file"
+        else:
+            email_error = "Client not found"
+    else:
+        email_error = "No client associated with this notice"
+
+    return {
+        "message": "Notice reply approved and finalized",
+        "status": "approved",
+        "email_sent": email_sent,
+        "email_error": email_error,
+    }
 
 
 @router.post("/{notice_id}/regenerate")

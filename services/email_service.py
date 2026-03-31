@@ -75,7 +75,17 @@ class EmailService:
         if reply_to and reply_to != platform_from:
             msg["Reply-To"] = reply_to
 
-        msg.attach(MIMEText(body_html, "plain"))
+        # Attach plain text version (convert HTML tags to plain text if needed)
+        plain_text = body_html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+        # Strip any remaining HTML tags for plain text fallback
+        import re
+        plain_text = re.sub(r"<[^>]+>", "", plain_text)
+        msg.attach(MIMEText(plain_text, "plain"))
+
+        # Attach HTML version (convert newlines to <br> for proper rendering)
+        html_body = body_html.replace("\n", "<br>")
+        html_content = f"<html><body style='font-family: Arial, sans-serif; line-height: 1.6;'>{html_body}</body></html>"
+        msg.attach(MIMEText(html_content, "html"))
 
         try:
             if settings.smtp_port == 465:
@@ -132,6 +142,37 @@ class EmailService:
         """Send an audit result / compliance report email to a client."""
         return EmailService.send_email(
             to, subject, body,
+            ca_name=ca_name,
+            reply_to=reply_to,
+        )
+
+    @staticmethod
+    def send_notice_reply(
+        to: str,
+        notice_type_display: str,
+        reply_body: str,
+        *,
+        ca_name: Optional[str] = None,
+        firm_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+    ) -> bool:
+        """Send an approved notice reply email to a client.
+
+        Args:
+            to:                  Client email address.
+            notice_type_display: e.g. "GST Notice (ASMT-10)".
+            reply_body:          The approved reply text.
+            ca_name:             CA person name for branding.
+            firm_name:           CA firm name for subject line.
+            reply_to:            CA's email for direct replies.
+
+        Returns:
+            True on success, False on failure.
+        """
+        brand = firm_name or ca_name or _PLATFORM_NAME
+        subject = f"Notice Reply: {notice_type_display} — {brand}"
+        return EmailService.send_email(
+            to, subject, reply_body,
             ca_name=ca_name,
             reply_to=reply_to,
         )
