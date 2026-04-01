@@ -16,6 +16,8 @@ def _strip_markdown(text: str) -> str:
     """Remove common markdown formatting characters for plain-text output."""
     if not text:
         return ""
+    # Normalise literal \n sequences (from JSON round-trips) to real newlines
+    text = text.replace("\\n", "\n")
     # Headers: ## Header → Header
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     # Bold/italic: **text** / __text__ / *text* / _text_
@@ -119,6 +121,9 @@ class EmailService:
         # Reply-To lets the client reply directly to the CA's inbox
         if reply_to and reply_to != platform_from:
             msg["Reply-To"] = reply_to
+
+        # Normalise literal \n sequences (from JSON round-trips) to real newlines
+        body_html = body_html.replace("\\n", "\n")
 
         # Convert markdown → HTML for rich email rendering
         html_body = md.markdown(body_html, extensions=["tables", "nl2br"])

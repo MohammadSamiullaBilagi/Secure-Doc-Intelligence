@@ -10,6 +10,8 @@ def _strip_markdown(text: str) -> str:
     """Remove common markdown formatting characters for plain-text output (PDFs)."""
     if not text:
         return ""
+    # Normalise literal \n sequences (from JSON round-trips) to real newlines
+    text = text.replace("\\n", "\n")
     # Headers: ## Header → Header
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     # Bold/italic: **text** / __text__ / *text* / _text_

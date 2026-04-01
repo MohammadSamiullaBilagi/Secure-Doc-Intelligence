@@ -17,6 +17,8 @@ def _strip_markdown_webhook(text: str) -> str:
     """Remove markdown formatting for plain-text output."""
     if not text:
         return ""
+    # Normalise literal \n sequences (from JSON round-trips) to real newlines
+    text = text.replace("\\n", "\n")
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text)
     text = re.sub(r"_{1,3}(.+?)_{1,3}", r"\1", text)
@@ -89,8 +91,10 @@ class WebhookService:
         # Use synchronous DB access to avoid event loop conflicts
         user_prefs = WebhookService._fetch_user_preferences_sync(user_id)
         
-        # We grab the human-approved text (which has \n and markdown)
+        # We grab the human-approved text (which may have literal \n and markdown)
         raw_email_body = remediation.get("email_body", "")
+        # Normalise literal \n sequences to real newlines
+        raw_email_body = raw_email_body.replace("\\n", "\n")
 
         # Strip markdown for plain-text version
         plain_email_body = _strip_markdown_webhook(raw_email_body)
