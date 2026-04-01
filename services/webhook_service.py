@@ -1,4 +1,5 @@
 import logging
+import re
 import requests
 from typing import Dict, Any
 from sqlalchemy import select, create_engine
@@ -10,6 +11,25 @@ from db.models.core import UserPreference
 from utils.exceptions import WebhookDeliveryError
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_markdown_webhook(text: str) -> str:
+    """Remove markdown formatting for plain-text output."""
+    if not text:
+        return ""
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,3}(.+?)_{1,3}", r"\1", text)
+    text = re.sub(r"~~(.+?)~~", r"\1", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[*\-+]\s+", "  ", text, flags=re.MULTILINE)
+    text = re.sub(r"^(\d+)\.\s+", r"\1. ", text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s?", "", text, flags=re.MULTILINE)
+    return text
+
 
 class WebhookService:
     @staticmethod
@@ -69,12 +89,15 @@ class WebhookService:
         # Use synchronous DB access to avoid event loop conflicts
         user_prefs = WebhookService._fetch_user_preferences_sync(user_id)
         
-        # We grab the human-approved text (which has \n)
+        # We grab the human-approved text (which has \n and markdown)
         raw_email_body = remediation.get("email_body", "")
-        
-        # We replace Python newlines with HTML line breaks
-        # We also replace spaces with non-breaking spaces for bullet-point indentation
-        html_email_body = raw_email_body.replace('\n', '<br>').replace('   -', '&nbsp;&nbsp;&nbsp;-')
+
+        # Strip markdown for plain-text version
+        plain_email_body = _strip_markdown_webhook(raw_email_body)
+
+        # Convert markdown → HTML for rich email rendering
+        import markdown as md
+        html_email_body = md.markdown(raw_email_body, extensions=["tables", "nl2br"])
 
         payload = {
             "meta": {
@@ -93,8 +116,8 @@ class WebhookService:
             "remediation": {
                 "recipient": remediation.get("target_recipient_type", ""),
                 "subject": remediation.get("email_subject", ""),
-                "body_plain": raw_email_body,   # Safe to keep for logs or SMS
-                "body_html": html_email_body    # NEW: The HTML version for Gmail
+                "body_plain": plain_email_body,  # Markdown stripped for logs / SMS
+                "body_html": html_email_body     # Markdown → HTML for Gmail
             },
             "violations": [
                 (res.model_dump() if hasattr(res, 'model_dump') else res)

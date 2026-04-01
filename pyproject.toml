@@ -45,4 +45,5 @@ dependencies = [
     "boto3>=1.42.73",
     "pyngrok>=7.5.1",
     "psycopg2-binary>=2.9.11",
+    "markdown>=3.10.2",
 ]

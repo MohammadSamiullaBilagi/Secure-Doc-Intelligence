@@ -277,48 +277,47 @@ async def approve_notice(
     job.status = "approved"
     await db.commit()
 
-    # --- Send email to client ---
+    # --- Send email to subscriber's preferred email + client email ---
     email_sent = False
     email_error = None
+
+    # Always fetch CA branding & subscriber preferred email
+    pref_result = await db.execute(
+        select(UserPreference).where(UserPreference.user_id == current_user.id)
+    )
+    prefs = pref_result.scalar_one_or_none()
+    ca_name = prefs.ca_name if prefs else None
+    firm_name = prefs.firm_name if prefs else None
+    reply_to = prefs.firm_email if prefs else None
+    subscriber_email = (prefs.preferred_email if prefs else None) or current_user.email
+
+    # Build recipient list: subscriber always gets a copy
+    recipients = [subscriber_email]
 
     if job.client_id:
         client_result = await db.execute(
             select(Client).where(Client.id == job.client_id)
         )
         client = client_result.scalar_one_or_none()
-
         if client and client.email:
-            # Fetch CA branding for email
-            pref_result = await db.execute(
-                select(UserPreference).where(UserPreference.user_id == current_user.id)
-            )
-            prefs = pref_result.scalar_one_or_none()
-            ca_name = prefs.ca_name if prefs else None
-            firm_name = prefs.firm_name if prefs else None
-            reply_to = prefs.firm_email if prefs else None
+            recipients.append(client.email)
 
-            notice_type_display = job.notice_blueprint_name or NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type)
+    notice_type_display = job.notice_blueprint_name or NOTICE_TYPE_DISPLAY.get(job.notice_type, job.notice_type)
 
-            try:
-                email_sent = EmailService.send_notice_reply(
-                    to=client.email,
-                    notice_type_display=notice_type_display,
-                    reply_body=job.final_reply,
-                    ca_name=ca_name,
-                    firm_name=firm_name,
-                    reply_to=reply_to,
-                )
-                if not email_sent:
-                    email_error = "SMTP send failed — check server SMTP configuration"
-            except Exception as e:
-                logger.error(f"Failed to send notice reply email to {client.email}: {e}")
-                email_error = str(e)
-        elif client and not client.email:
-            email_error = "Client has no email address on file"
-        else:
-            email_error = "Client not found"
-    else:
-        email_error = "No client associated with this notice"
+    try:
+        email_sent = EmailService.send_notice_reply(
+            to=recipients,
+            notice_type_display=notice_type_display,
+            reply_body=job.final_reply,
+            ca_name=ca_name,
+            firm_name=firm_name,
+            reply_to=reply_to,
+        )
+        if not email_sent:
+            email_error = "SMTP send failed — check server SMTP configuration"
+    except Exception as e:
+        logger.error(f"Failed to send notice reply email to {recipients}: {e}")
+        email_error = str(e)
 
     return {
         "message": "Notice reply approved and finalized",

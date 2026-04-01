@@ -1,8 +1,37 @@
 import logging
+import re
 from datetime import datetime
 from io import BytesIO
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove common markdown formatting characters for plain-text output (PDFs)."""
+    if not text:
+        return ""
+    # Headers: ## Header → Header
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    # Bold/italic: **text** / __text__ / *text* / _text_
+    text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,3}(.+?)_{1,3}", r"\1", text)
+    # Strikethrough: ~~text~~
+    text = re.sub(r"~~(.+?)~~", r"\1", text)
+    # Inline code: `code`
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    # Links: [text](url) → text
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    # Images: ![alt](url) → alt
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    # Horizontal rules: --- / *** / ___
+    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+    # Unordered list markers: * / - / + at line start → indent
+    text = re.sub(r"^[*\-+]\s+", "  ", text, flags=re.MULTILINE)
+    # Ordered list markers: 1. 2. etc.
+    text = re.sub(r"^(\d+)\.\s+", r"\1. ", text, flags=re.MULTILINE)
+    # Blockquotes: > text → text
+    text = re.sub(r"^>\s?", "", text, flags=re.MULTILINE)
+    return text
 
 
 def _safe_get(obj, attr: str, default=""):
@@ -253,7 +282,7 @@ class ReportService:
             pdf.set_font("Helvetica", "B", 14)
             pdf.cell(0, 10, "Executive Summary", ln=True)
             pdf.set_font("Helvetica", "", 10)
-            safe_risk = _break_long_words(_sanitize_text(risk_report or "No risk assessment available."))
+            safe_risk = _break_long_words(_sanitize_text(_strip_markdown(risk_report or "No risk assessment available.")))
             _safe_multi_cell(pdf, effective_w, 6, safe_risk)
             pdf.ln(5)
         except Exception as e:
@@ -393,8 +422,8 @@ class ReportService:
                 pdf.set_font("Helvetica", "B", 14)
                 pdf.cell(0, 10, "Remediation Required", ln=True)
                 pdf.set_font("Helvetica", "", 10)
-                _safe_multi_cell(pdf, effective_w, 6, _break_long_words(_sanitize_text(f"Subject: {remediation.get('email_subject', 'N/A')}")))
-                _safe_multi_cell(pdf, effective_w, 6, _break_long_words(_sanitize_text(remediation.get("email_body", ""))))
+                _safe_multi_cell(pdf, effective_w, 6, _break_long_words(_sanitize_text(_strip_markdown(f"Subject: {remediation.get('email_subject', 'N/A')}"))))
+                _safe_multi_cell(pdf, effective_w, 6, _break_long_words(_sanitize_text(_strip_markdown(remediation.get("email_body", "")))))
                 pdf.ln(5)
         except Exception as e:
             logger.error(f"PDF remediation section failed: {e}")
@@ -450,7 +479,7 @@ class ReportService:
 
         # Reply body
         pdf.set_font("Helvetica", "", 10)
-        safe_reply = _break_long_words(_sanitize_text(reply_text or ""))
+        safe_reply = _break_long_words(_sanitize_text(_strip_markdown(reply_text or "")))
         for paragraph in safe_reply.split('\n'):
             _safe_multi_cell(pdf, effective_w, 6, paragraph)
 

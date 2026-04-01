@@ -152,49 +152,48 @@ async def approve_audit_task(
             j.status = "dispatched"
         await db.commit()
 
-        # 4. Send email to client
+        # 4. Send email to subscriber's preferred email + client email
         email_sent = False
         email_error = None
+
+        # Always fetch CA branding & subscriber preferred email
+        pref_result = await db.execute(
+            select(UserPreference).where(UserPreference.user_id == current_user.id)
+        )
+        prefs = pref_result.scalar_one_or_none()
+        ca_name = prefs.ca_name if prefs else None
+        firm_name = prefs.firm_name if prefs else None
+        reply_to = prefs.firm_email if prefs else None
+        subscriber_email = (prefs.preferred_email if prefs else None) or current_user.email
+
+        # Build recipient list: subscriber always gets a copy
+        recipients = [subscriber_email]
 
         if job.client_id:
             client_result = await db.execute(
                 select(Client).where(Client.id == job.client_id)
             )
             client = client_result.scalar_one_or_none()
-
             if client and client.email:
-                # Fetch CA branding
-                pref_result = await db.execute(
-                    select(UserPreference).where(UserPreference.user_id == current_user.id)
-                )
-                prefs = pref_result.scalar_one_or_none()
-                ca_name = prefs.ca_name if prefs else None
-                firm_name = prefs.firm_name if prefs else None
-                reply_to = prefs.firm_email if prefs else None
+                recipients.append(client.email)
 
-                subject = f"Compliance Audit Report: {job.document_name}"
-                if firm_name:
-                    subject += f" — {firm_name}"
+        subject = f"Compliance Audit Report: {job.document_name}"
+        if firm_name:
+            subject += f" — {firm_name}"
 
-                try:
-                    email_sent = EmailService.send_audit_dispatch(
-                        to=client.email,
-                        ca_name=ca_name or firm_name or "",
-                        subject=subject,
-                        body=request.edited_draft,
-                        reply_to=reply_to,
-                    )
-                    if not email_sent:
-                        email_error = "SMTP send failed — check server SMTP configuration"
-                except Exception as email_exc:
-                    logger.error(f"Failed to send audit email to {client.email}: {email_exc}")
-                    email_error = str(email_exc)
-            elif client and not client.email:
-                email_error = "Client has no email address on file"
-            else:
-                email_error = "Client not found"
-        else:
-            email_error = "No client associated with this audit"
+        try:
+            email_sent = EmailService.send_audit_dispatch(
+                to=recipients,
+                ca_name=ca_name or firm_name or "",
+                subject=subject,
+                body=request.edited_draft,
+                reply_to=reply_to,
+            )
+            if not email_sent:
+                email_error = "SMTP send failed — check server SMTP configuration"
+        except Exception as email_exc:
+            logger.error(f"Failed to send audit email to {recipients}: {email_exc}")
+            email_error = str(email_exc)
 
         return {
             "status": "success",

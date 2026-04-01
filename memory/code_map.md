@@ -52,15 +52,15 @@ State: `MultiAgentState` — session_hash, user_id, thread_id, data_dir, target_
 ## 3. API ROUTES
 
 ### auth.py — /api/v1/auth
-| Endpoint | Method | Body | Response |
-|----------|--------|------|----------|
-| /register | POST | `{email, password}` | 201 UserResponse |
-| /login | POST | form `username=email&password=...` | Token |
-| /json-login | POST | `{email, password}` | Token |
-| /google | POST | `{credential}` | Token |
-| /me | GET | — | {id, email, is_active, created_at} |
-| /preferences | GET | — | UserPreference fields |
-| /preferences | PUT | UpdatePreferencesRequest | Updated prefs |
+| Endpoint | Method | Body | Response | Notes |
+|----------|--------|------|----------|-------|
+| /register | POST | `{email, password}` | 201 UserResponse | Rate limited: 10/min |
+| /login | POST | form `username=email&password=...` | Token | Rate limited: 10/min |
+| /json-login | POST | `{email, password}` | Token | Rate limited: 10/min |
+| /google | POST | `{credential}` (param name: `body`) | Token | Rate limited: 10/min. `request` param is FastAPI Request for rate limiter |
+| /me | GET | — | {id, email, is_active, created_at} | |
+| /preferences | GET | — | UserPreference fields | |
+| /preferences | PUT | UpdatePreferencesRequest | Updated prefs | |
 
 ### documents.py — /api/v1/documents
 | Endpoint | Method | Body | Response | Plan |
@@ -81,12 +81,15 @@ Helper: `get_session_paths(user_id) -> (data_dir, db_dir)`
 |----------|--------|------|----------|
 | /pending | GET | — | List[PendingAuditResponse] |
 | /clear | DELETE | — | {status, cleared} |
-| /{thread_id}/approve | POST | {edited_draft} | {status, message} |
+| /{thread_id}/approve | POST | {edited_draft} | {status, message, email_sent, email_error} — sends email to client via EmailService |
+
+Note: `GET /pending` returns `email_draft` (raw with \n) AND `email_draft_html` (with `<br>` tags) — frontend should use the `_html` field for display.
 | /{thread_id}/reject | POST | — | {status, message} |
 
-### blueprints.py — /api/v1/blueprints (Professional+)
+### blueprints.py — /api/v1/blueprints (Professional+ / free_trial with credits)
 | Endpoint | Method | Body | Response |
 |----------|--------|------|----------|
+| /access | GET | — | {has_access, reason, plan, credits_balance} — frontend calls this to decide blueprint selector vs upgrade prompt |
 | / | GET | — | [{id, name, description, checks_count, is_system}] |
 | / | POST | {name, description, checks[]} | {id, name, checks_count} (2 credits) |
 | /{blueprint_id} | DELETE | — | {message} |
@@ -103,7 +106,9 @@ Helper: `get_session_paths(user_id) -> (data_dir, db_dir)`
 | /upload | POST | notice_file, notice_type, client_id?, supporting_files | {notice_job_id, status} (5 credits) |
 | / | GET | — | List[NoticeListItem] |
 | /{job_id} | GET | — | NoticeDetailResponse |
-| /{job_id}/approve | POST | {edited_draft} | — |
+| /{job_id}/approve | POST | {edited_draft} | {message, status, email_sent, email_error} — sends email to client via EmailService |
+
+Note: `GET /{job_id}` returns `draft_reply_html` and `final_reply_html` (with `<br>` tags) alongside raw text fields — frontend should use `_html` fields for display.
 | /{job_id}/regenerate | POST | — | — (1 credit) |
 
 ### clients.py — /api/v1/clients (Enterprise)
@@ -271,7 +276,8 @@ ExportFormat enum: CSV, TALLY, ZOHO
 `seed_indian_deadlines(db)` (idempotent, GST/IT/TDS/FEMA)
 
 ### services/email_service.py — EmailService
-`send_reminder(user_email, deadline_info, channel=email)`
+`is_configured() -> bool`, `send_email(to, subject, body_html, ca_name?, reply_to?) -> bool` (sends both plain+HTML parts), `send_deadline_reminder(to, ca_name, deadline_name, due_date_str, days_remaining, reply_to?)`, `send_audit_dispatch(to, ca_name, subject, body, reply_to?)`, `send_notice_reply(to, notice_type_display, reply_body, ca_name?, firm_name?, reply_to?)`
+Multi-tenant: FROM=platform verified address, display name="CA Name via Legal AI Expert", Reply-To=CA's email. Uses SMTP (SendGrid compatible).
 
 ### services/webhook_service.py — WebhookService
 `dispatch_audit_results(session_hash, filename, final_state)` (N8N webhook)
@@ -294,4 +300,5 @@ database_url, openai_api_key, anthropic_api_key, tavily_api_key, session_ttl_hou
 - All routers registered with /api/v1/ prefix
 
 ### db/database.py
-Base, TimestampMixin(created_at, updated_at), engine(async SQLite), AsyncSessionLocal, get_db()
+Base, TimestampMixin(created_at, updated_at), engine(async SQLite or PostgreSQL), AsyncSessionLocal, get_db()
+PostgreSQL pool: pool_size=5, max_overflow=10, pool_pre_ping=True, pool_recycle=1800, pool_timeout=30 (db-f1-micro max 25 conns)

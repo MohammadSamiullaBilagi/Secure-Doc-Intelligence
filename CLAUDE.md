@@ -69,6 +69,8 @@ professional: 300 (Rs.999) | enterprise: 1000 (Rs.2,499)
 
 Plan gating in `api/dependencies.py`: `require_starter`, `require_professional`, `require_enterprise` — all allow `free_trial` users with `credits_balance > 0`.
 
+Blueprint access check: `GET /api/v1/blueprints/access` → `{has_access, reason, plan, credits_balance}`. Frontend must use this (not plan name) to decide blueprint selector vs upgrade prompt.
+
 ### Credit Costs
 - DOCUMENT_SCAN = 3 credits
 - CHAT_QUERY = 1 credit
@@ -159,6 +161,7 @@ See `.env.production` for production template with Cloud SQL + GCS + Secret Mana
 - **Tesseract OCR**: must be installed separately (Windows: UB-Mannheim, Docker: apt package)
 - **LLM**: Anthropic Haiku 4.5 (chat/extraction), Sonnet 4.6 (reports/remediation) + OpenAI `text-embedding-3-small`
 - **razorpay**: installed via uv
+- **markdown**: `markdown==3.10.2` — converts AI-generated markdown to HTML for emails/webhooks
 - **Rate limiting**: slowapi middleware on all routes
 
 ---
@@ -168,6 +171,8 @@ See `.env.production` for production template with Cloud SQL + GCS + Secret Mana
 **Architecture**: Cloud Run → Cloud SQL (PostgreSQL) + GCS (file storage) + Secret Manager
 **Domain**: `legalaiexpert.in` (Namecheap DNS → Cloud Run custom domain mapping)
 **Docker**: Multi-stage build with gunicorn + uvicorn workers. `ENV=production` set in Dockerfile.
+**Deploy command**: `gcloud run deploy legal-ai-expert --source . --region asia-south1 --allow-unauthenticated`
+**GCP Project**: `legal-ai-expert` | **Service**: `legal-ai-expert` | **Region**: `asia-south1`
 
 Key production safeguards:
 - SECRET_KEY validated at startup (exits if empty/default)
@@ -175,8 +180,31 @@ Key production safeguards:
 - Webhook signature validation mandatory
 - Global exception handler returns JSON (not HTML traceback)
 - Health check at `/health` verifies DB + ChromaDB connectivity
+- PostgreSQL pool: `pool_recycle=1800` prevents stale connections after idle
+- Auth endpoints rate-limited to 10 requests/minute per IP
 
 See plan file or `scripts/migrate_sqlite_to_postgres.py` for SQLite → PostgreSQL migration.
+
+### Email Dispatch (SendGrid via SMTP)
+- **Dual-recipient**: Emails go to BOTH subscriber's preferred email AND client's email
+  - Subscriber email = `UserPreference.preferred_email` (fallback: `User.email`)
+  - Client email = `Client.email` (only if client is linked)
+  - No client linked? Email goes to subscriber only
+  - Duplicate emails are auto-deduplicated
+- **Audit approval** (`POST /api/v1/audits/{thread_id}/approve`): sends compliance report to subscriber + client
+- **Notice approval** (`POST /api/v1/notices/{id}/approve`): sends notice reply to subscriber + client
+- Both return `email_sent` (bool) and `email_error` (string|null) in response
+- `EmailService.send_email()` accepts `Union[str, List[str]]` for multiple recipients
+- CA branding: FROM="CA Name via Legal AI Expert", Reply-To=CA's firm_email
+- **Markdown rendering**: `markdown` library converts AI-generated markdown → proper HTML in emails (bold, headers, lists render correctly). Plain text fallback uses `_strip_markdown()` to remove `**`, `##`, `*` etc.
+- SMTP config: SendGrid relay via `SMTP_HOST`, `SMTP_USER` (apikey), `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`
+
+### Markdown Handling (AI-generated content)
+- AI models (Anthropic/OpenAI) return markdown (`**bold**`, `## headers`, `* bullets`)
+- **Emails**: `markdown` library converts to HTML; `_strip_markdown()` creates plain text fallback
+- **PDFs**: `_strip_markdown()` in `report_service.py` removes markdown before rendering via FPDF
+- **Webhooks**: `webhook_service.py` sends both `body_html` (markdown→HTML) and `body_plain` (stripped)
+- Helper `_strip_markdown()` handles: headers, bold/italic, strikethrough, inline code, links, images, horizontal rules, blockquotes, list markers
 
 ---
 
@@ -198,6 +226,7 @@ See plan file or `scripts/migrate_sqlite_to_postgres.py` for SQLite → PostgreS
 | DocumentParser | services/document_parser.py | Haiku L1 parsing for audit pipeline |
 | CheckAgentService | services/check_agent.py | Haiku L2 parallel audit checks |
 | ReferenceService | services/reference_service.py | Ground truth DB cache |
+| EmailService | services/email_service.py | SMTP/SendGrid email: audit dispatch, notice reply, deadline reminders |
 | StorageService | services/storage.py | Local or S3/GCS file storage |
 | Scheduler | services/scheduler.py | APScheduler background jobs |
-| RateLimit | api/rate_limit.py | slowapi rate limiting |
+| RateLimit | api/rate_limit.py | slowapi rate limiting (auth: 10/min) |
