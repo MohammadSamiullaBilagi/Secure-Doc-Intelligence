@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+
+from services.llm_config import get_light_llm
 
 from schemas.blueprint_schema import BlueprintCheck
 from config import settings
@@ -91,11 +92,7 @@ class ReferenceService:
     """Fetches ground truth regulatory references via Tavily search + Haiku extraction."""
 
     def __init__(self):
-        self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=1024,
-        )
+        self.llm = get_light_llm(max_tokens=1024)
 
     async def get_reference(self, check_id: str, rule_text: str) -> ReferenceResult:
         """Get ground truth reference for a single check.

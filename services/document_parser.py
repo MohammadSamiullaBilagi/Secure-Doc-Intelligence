@@ -1,16 +1,17 @@
-"""Layer 1 — Blueprint-agnostic full document parsing using gpt-4o-mini."""
+"""Layer 1 — Blueprint-agnostic full document parsing using Gemini 2.5 Pro."""
 
 import json
 import logging
 import re
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+
+from services.llm_config import get_json_llm
 
 logger = logging.getLogger(__name__)
 
-MAX_INPUT_CHARS = 24_000
-RETRY_INPUT_CHARS = 16_000
+MAX_INPUT_CHARS = 200_000  # Gemini 2.5 Pro supports ~1M tokens; raised from 24K
+RETRY_INPUT_CHARS = 100_000
 
 
 def _robust_json_parse(text: str) -> dict:
@@ -64,11 +65,7 @@ class DocumentParser:
     """
 
     def __init__(self):
-        self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=4096,
-        ).bind(response_format={"type": "json_object"})
+        self.llm = get_json_llm(heavy=True, max_tokens=8192)
 
     def parse_document(self, combined_text: str) -> dict:
         """Extract ALL data from document text into structured JSON.

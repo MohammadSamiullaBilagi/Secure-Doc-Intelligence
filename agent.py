@@ -4,11 +4,13 @@ from typing import List, Dict, Any, TypedDict
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
+
+from services.llm_config import get_heavy_llm, get_light_llm, get_json_llm, get_embeddings
+from services.reranker import rerank_documents_sync
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,6 +28,8 @@ class AgentState(TypedDict):
     answer: str
     retries: int
     is_hallucination: bool
+    chat_history: List[dict]  # conversation memory: [{"role": "user"/"assistant", "content": "..."}]
+    no_context: bool  # True when no documents found — triggers general knowledge fallback
 
 class CritiqueOutput(BaseModel):
     is_hallucination: bool = Field(description="True if hallucinated, False if perfectly grounded.")
@@ -43,21 +47,22 @@ class SecureDocAgent:
         self.max_retries = 2
         
         logger.info("Initializing Agentic components...")
-        self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        
+        self.embeddings = get_embeddings()
+
         # Initialize Local DB
         if not os.path.exists(self.db_dir):
             os.makedirs(self.db_dir, exist_ok=True)
         self.local_vectorstore = Chroma(persist_directory=self.db_dir, embedding_function=self.embeddings)
-        
+
         # Initialize Global DB
         if not os.path.exists(self.global_db_dir):
             os.makedirs(self.global_db_dir, exist_ok=True)
         self.global_vectorstore = Chroma(persist_directory=self.global_db_dir, embedding_function=self.embeddings)
-        
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-        self.eval_llm = self.llm.with_structured_output(CritiqueOutput)
-        self.router_llm = self.llm.with_structured_output(RouterOutput)
+
+        # Heavy model for generation, light for routing/evaluation
+        self.llm = get_heavy_llm()
+        self.eval_llm = get_light_llm().with_structured_output(CritiqueOutput)
+        self.router_llm = get_light_llm().with_structured_output(RouterOutput)
 
         self.workflow = self._build_graph()
 
@@ -73,51 +78,94 @@ class SecureDocAgent:
         return {"target_db": decision.target_db}
 
     def retrieve_node(self, state: AgentState):
-        """Retrieves documents from the appropriate vectorstore."""
-        logger.info("NODE: Retrieving context...")
+        """Hybrid retrieval — always searches both local and global DBs, then reranks."""
+        logger.info("NODE: Retrieving context (hybrid)...")
         question = state["question"]
         filters = state.get("metadata_filter")
-        target = state.get("target_db", "local")
-        
-        # PROPER FIX: ChromaDB requires explicitly None if empty, not {}
         valid_filter = filters if filters else None
 
         docs = []
-        if target in ["local", "both"]:
-            try:
-                docs.extend(self.local_vectorstore.similarity_search(query=question, k=5, filter=valid_filter))
-            except Exception as e:
-                logger.error(f"Local retrieval failed: {e}")
-                
-        if target in ["global", "both"]:
-            try:
-                # We don't apply user metadata filters to the global regulation DB
-                docs.extend(self.global_vectorstore.similarity_search(query=question, k=3))
-            except Exception as e:
-                logger.error(f"Global retrieval failed: {e}")
 
-        return {"context": docs}
+        # Always search local DB (user's uploaded documents)
+        try:
+            local_docs = self.local_vectorstore.similarity_search(query=question, k=15, filter=valid_filter)
+            # Filter out injected audit report chunks
+            local_docs = [d for d in local_docs if d.metadata.get("type") != "audit_report"]
+            docs.extend(local_docs)
+            logger.info(f"Local retrieval: {len(local_docs)} chunks")
+        except Exception as e:
+            logger.warning(f"Local retrieval failed: {e}")
+
+        # Always search global DB (regulations/law)
+        try:
+            global_docs = self.global_vectorstore.similarity_search(query=question, k=5)
+            docs.extend(global_docs)
+            logger.info(f"Global retrieval: {len(global_docs)} chunks")
+        except Exception as e:
+            logger.warning(f"Global retrieval failed: {e}")
+
+        no_context = len(docs) == 0
+
+        # Rerank to keep only the most relevant chunks
+        if len(docs) > 10:
+            docs = rerank_documents_sync(query=question, documents=docs, top_k=10)
+
+        return {"context": docs, "no_context": no_context}
 
     def generate_node(self, state: AgentState):
         logger.info(f"NODE: Generating answer (Attempt {state.get('retries', 0) + 1})...")
-        prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "You are an expert CA assistant specializing in Indian taxation and compliance. "
-             "You know the Income Tax Act 1961, CGST Act 2017, Companies Act 2013, and ICAI standards.\n\n"
-             "RULES:\n"
-             "1. When referencing sections, always cite the exact section number and sub-section.\n"
-             "2. When a client document is in context, analyze it against applicable rules and flag issues proactively.\n"
-             "3. Answer in professional CA language. Amounts in Indian format (Rs. lakhs, crores). Dates in DD/MM/YYYY.\n"
-             "4. Synthesize information from ALL provided context to give a comprehensive answer.\n"
-             "5. When discussing violations or compliance findings, clearly state what was found and any recommended remediation.\n"
-             "6. Cite specific details from the context (page numbers, values, clause references).\n"
-             "7. If the context genuinely contains no relevant information, say so briefly."),
-            ("human", "Context:\n{context}\n\nQuestion: {question}")
+
+        no_context = state.get("no_context", False)
+
+        # Build system prompt — add general knowledge disclaimer if no documents found
+        system_text = (
+            "You are an expert CA assistant specializing in Indian taxation and compliance. "
+            "You know the Income Tax Act 1961, CGST Act 2017, Companies Act 2013, and ICAI standards.\n\n"
+            "RULES:\n"
+            "1. When referencing sections, always cite the exact section number and sub-section.\n"
+            "2. When a client document is in context, analyze it against applicable rules and flag issues proactively.\n"
+            "3. Answer in professional CA language. Amounts in Indian format (Rs. lakhs, crores). Dates in DD/MM/YYYY.\n"
+            "4. Synthesize information from ALL provided context to give a comprehensive answer.\n"
+            "5. When discussing violations or compliance findings, clearly state what was found and any recommended remediation.\n"
+            "6. Cite specific details from the context (page numbers, values, clause references).\n"
+            "7. If the context genuinely contains no relevant information, say so briefly."
+        )
+
+        if no_context:
+            system_text += (
+                "\n\nIMPORTANT: No uploaded documents were found for this user. "
+                "Answer based on your general knowledge of Indian tax law and compliance. "
+                "Start your answer with: 'Based on general legal knowledge (no uploaded documents found):'"
+            )
+
+        # Build conversation history prefix
+        history_text = ""
+        chat_history = state.get("chat_history") or []
+        if chat_history:
+            history_parts = []
+            for msg in chat_history[-10:]:  # Last 10 messages max
+                role = msg.get("role", "user").capitalize()
+                history_parts.append(f"{role}: {msg.get('content', '')}")
+            history_text = "Previous conversation:\n" + "\n".join(history_parts) + "\n\n"
+
+        formatted_context = "\n\n".join([
+            f"[Page {doc.metadata.get('page', 'Unknown')}] {doc.page_content}"
+            for doc in state.get("context", [])
         ])
-        
-        formatted_context = "\n\n".join([f"[Page {doc.metadata.get('page', 'Unknown')}] {doc.page_content}" for doc in state.get("context", [])])
-        response = (prompt | self.llm).invoke({"context": formatted_context, "question": state["question"]})
-        
+
+        human_text = ""
+        if history_text:
+            human_text += history_text
+        if formatted_context:
+            human_text += f"Context:\n{formatted_context}\n\n"
+        human_text += f"Question: {state['question']}"
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_text),
+            ("human", human_text),
+        ])
+
+        response = (prompt | self.llm).invoke({})
         return {"answer": response.content, "retries": state.get("retries", 0) + 1}
 
     def evaluate_node(self, state: AgentState):
@@ -171,12 +219,14 @@ class SecureDocAgent:
         
         return workflow.compile()
 
-    def query(self, question: str, metadata_filter: dict = None) -> dict:
+    def query(self, question: str, metadata_filter: dict = None, chat_history: list = None) -> dict:
         """The public entrypoint."""
         initial_state = {
             "question": question,
-            "metadata_filter": metadata_filter, # Passed directly, no `or {}`
-            "retries": 0
+            "metadata_filter": metadata_filter,
+            "retries": 0,
+            "chat_history": chat_history or [],
+            "no_context": False,
         }
         
         final_state = self.workflow.invoke(initial_state)
@@ -296,13 +346,19 @@ class SecureDocAgent:
             if docs:
                 # Filter out previously injected audit reports to avoid poisoning extraction
                 docs = [doc for doc in docs if doc.metadata.get("type") != "audit_report"]
+                # Rerank to keep most relevant chunks
+                if len(docs) > 15:
+                    docs = rerank_documents_sync(
+                        query="document invoice facts terms amounts dates compliance",
+                        documents=docs, top_k=15
+                    )
                 combined_text = "\n\n".join([
                     f"[Page {doc.metadata.get('page', '?')}]: {doc.page_content}"
                     for doc in docs
                 ])
         except Exception as e:
             logger.warning(f"STAGE 1 [Tier 1 - ChromaDB]: Vector retrieval failed: {e}")
-        
+
         # TIER 2: If ChromaDB returned nothing, read the PDF directly from disk
         if not combined_text:
             source_filename = valid_filter.get("source") if valid_filter else None
@@ -383,7 +439,7 @@ class SecureDocAgent:
         # =====================================================
         # STAGE 3 — FRAMEWORK-AGNOSTIC MAPPING (LLM Extraction)
         # =====================================================
-        json_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0).bind(response_format={"type": "json_object"})
+        json_llm = get_json_llm(heavy=True)
         
         extraction_prompt = ChatPromptTemplate.from_messages([
             ("system",
@@ -479,6 +535,12 @@ class SecureDocAgent:
 
             if docs:
                 docs = [doc for doc in docs if doc.metadata.get("type") != "audit_report"]
+                # Rerank to keep most relevant chunks
+                if len(docs) > 15:
+                    docs = rerank_documents_sync(
+                        query="notice section assessment year demand amount penalty tax period deadline",
+                        documents=docs, top_k=15
+                    )
                 combined_text = "\n\n".join([
                     f"[Page {doc.metadata.get('page', '?')}]: {doc.page_content}"
                     for doc in docs
@@ -561,7 +623,7 @@ class SecureDocAgent:
         # =====================================================
         # STAGE 3 — NOTICE-SPECIFIC EXTRACTION
         # =====================================================
-        json_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0).bind(response_format={"type": "json_object"})
+        json_llm = get_json_llm(heavy=True)
 
         # Build per-check format instructions from blueprint
         checks = blueprint_dict.get("checks", [])

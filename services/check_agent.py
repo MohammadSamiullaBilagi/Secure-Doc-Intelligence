@@ -1,10 +1,9 @@
-"""Layer 2 — Parallel per-check compliance agents using Haiku."""
+"""Layer 2 — Parallel per-check compliance agents using Gemini 2.5 Pro."""
 
 import asyncio
 import json
 import logging
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from schemas.blueprint_schema import (
@@ -13,6 +12,8 @@ from schemas.blueprint_schema import (
     FinancialImpact,
 )
 from services.reference_service import ReferenceService, ReferenceResult
+from services.llm_config import get_heavy_llm
+from services.query_expander import expand_query
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,7 @@ class CheckAgentService:
     """Evaluates compliance checks in parallel with ground truth references."""
 
     def __init__(self):
-        self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=1024,
-        )
+        self.llm = get_heavy_llm()
         self.reference_service = ReferenceService()
 
     async def evaluate_check(
@@ -76,13 +73,13 @@ class CheckAgentService:
 
         try:
             response = (prompt | self.llm).invoke({
-                "doc_json": json.dumps(parsed_doc, separators=(',', ':'), default=str)[:12000],
+                "doc_json": json.dumps(parsed_doc, separators=(',', ':'), default=str),
                 "check_id": check.check_id,
                 "focus": check.focus,
                 "rule": check.rule,
                 "ref_source": reference.source_name,
                 "ref_confidence": reference.confidence,
-                "ref_rules": reference.extracted_rules[:1500],
+                "ref_rules": reference.extracted_rules,
             })
 
             content = response.content.strip()

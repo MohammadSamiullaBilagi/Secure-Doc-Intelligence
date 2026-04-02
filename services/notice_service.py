@@ -247,7 +247,7 @@ class NoticeService:
     @staticmethod
     def _draft_reply(notice_type: str, extracted_data: dict, supporting_context: str, blueprint_dict: dict = None) -> str:
         """Generate a draft reply using LLM (called via asyncio.to_thread)."""
-        from langchain_openai import ChatOpenAI
+        from services.llm_config import get_heavy_llm
 
         if notice_type == "custom" and blueprint_dict:
             notice_type_display = blueprint_dict.get("name", "Custom Notice")
@@ -296,7 +296,7 @@ class NoticeService:
             supporting_context=supporting_context,
         )
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+        llm = get_heavy_llm(temperature=0.3)
         response = llm.invoke(prompt_text)
         return response.content
 

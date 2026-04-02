@@ -409,14 +409,10 @@ class GSTR9ReconciliationService:
 
     def _parse_via_llm(self, raw_text: str, return_type: str) -> dict:
         """Fallback: parse using LLM if direct parsing fails."""
-        from langchain_openai import ChatOpenAI
+        from services.llm_config import get_json_llm
         from langchain_core.prompts import ChatPromptTemplate
 
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=4096,
-        ).bind(response_format={"type": "json_object"})
+        llm = get_json_llm(heavy=True, max_tokens=4096)
 
         truncated = raw_text[:MAX_INPUT_CHARS]
 

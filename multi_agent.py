@@ -5,9 +5,8 @@ from typing import TypedDict, Annotated, Dict, List, Any
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langchain_openai import ChatOpenAI
-
 from agent import SecureDocAgent
+from services.llm_config import get_heavy_llm
 from schemas.blueprint_schema import Blueprint, AuditResult, EnhancedAuditResult
 from schemas.remediation_schema import RemediationDraft
 from services.webhook_service import WebhookService
@@ -91,7 +90,7 @@ class RemediationLLMOutput(BaseModel):
 
 class ComplianceOrchestrator:
     def __init__(self, db_dir: str, data_dir: str = ""):
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        self.llm = get_heavy_llm()
         self.doc_agent = SecureDocAgent(db_dir=db_dir)
         self.db_dir = db_dir
         self.data_dir = data_dir

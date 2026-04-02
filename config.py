@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field(default="")
     ANTHROPIC_API_KEY: str = Field(default="")
     TAVILY_API_KEY: str = Field(default="")
+    GOOGLE_API_KEY: str = Field(default="")
 
     # --- JWT Auth ---
     SECRET_KEY: str = Field(default="")  # MUST be set in .env — no safe default

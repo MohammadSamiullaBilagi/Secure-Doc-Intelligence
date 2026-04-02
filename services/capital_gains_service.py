@@ -5,7 +5,7 @@ import logging
 import re
 from datetime import date, datetime
 
-from langchain_openai import ChatOpenAI
+from services.llm_config import get_json_llm
 from langchain_core.prompts import ChatPromptTemplate
 
 from services.capital_gains_rules import (
@@ -129,11 +129,7 @@ class CapitalGainsService:
              "Extract all capital gains transactions as JSON now."),
         ])
 
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=4096,
-        ).bind(response_format={"type": "json_object"})
+        llm = get_json_llm(heavy=True, max_tokens=4096)
 
         try:
             response = (prompt | llm).invoke({"context": raw_text})

@@ -48,10 +48,16 @@ python test_ocr.py
 
 ## Architecture (quick summary — see memory/architecture.md for full detail)
 
-**Stack**: FastAPI + LangGraph + LangChain + SQLite/PostgreSQL + ChromaDB + Anthropic (Haiku 4.5 for chat/extraction, Sonnet 4.6 for reports)
+**Stack**: FastAPI + LangGraph + LangChain + SQLite/PostgreSQL + ChromaDB + Gemini 2.5 Pro (extraction/evaluation) + Gemini 2.0 Flash (routing/reranking) + OpenAI Embeddings (text-embedding-3-small)
+
+### LLM Configuration
+- **Central factory**: `services/llm_config.py` — `get_heavy_llm()` (Gemini 2.5 Pro), `get_light_llm()` (Gemini 2.0 Flash), `get_json_llm()`, `get_embeddings()`
+- **Fallback**: If `GOOGLE_API_KEY` not set, all models fall back to `gpt-4o-mini`
+- **Reranker**: `services/reranker.py` — scores retrieved chunks by relevance, keeps top-k
+- **Query Expander**: `services/query_expander.py` — generates 3 targeted queries per compliance check
 
 ### Core Pipelines
-- **`agent.py` — `SecureDocAgent`**: 4-stage RAG (Route→Retrieve→Generate→Evaluate). Methods: `query()`, `extract_for_audit()`, `extract_structured_fields()`
+- **`agent.py` — `SecureDocAgent`**: Hybrid RAG (Retrieve from both local+global → Rerank → Generate → Evaluate). Methods: `query()`, `extract_for_audit()`, `extract_structured_fields()`. Supports conversation history via `chat_history` parameter.
 - **`multi_agent.py` — `ComplianceOrchestrator`**: 5-stage multi-agent (Researcher→Auditor→Analyst→Remediation→Dispatch). HITL pause at Dispatch. State in `Database/checkpointer.db`.
 - **`ingestion.py` — `DocumentProcessor`**: Extract (PyMuPDF + OCR) → Chunk (1000/150) → Embed → ChromaDB
 
@@ -92,7 +98,7 @@ Blueprint access check: `GET /api/v1/blueprints/access` → `{has_access, reason
 |--------|------|--------|
 | /api/v1/auth | routes/auth.py | All |
 | /api/v1/documents | routes/documents.py | All (bulk-upload: Enterprise) |
-| /api/v1/chat | routes/chat.py | All |
+| /api/v1/chat | routes/chat.py | All (session_id for conversation memory, hybrid routing, general knowledge fallback) |
 | /api/v1/audits | routes/audits.py | All |
 | /api/v1/blueprints | routes/blueprints.py | All (credit-gated) |
 | /api/v1/reports | routes/reports.py | All (export: Enterprise) |
@@ -120,7 +126,7 @@ Uses `services/tabular_export_service.py` — `TabularExportService.to_csv()` / 
 
 - **Dev**: `micro_saas.db` (SQLite + aiosqlite)
 - **Production**: Cloud SQL PostgreSQL (asyncpg) — set `DATABASE_URL` in `.env`
-- **Models**: `db/models/core.py`, `billing.py`, `clients.py`, `calendar.py`, `notices.py`, `references.py`, `feedback.py`
+- **Models**: `db/models/core.py`, `billing.py`, `clients.py`, `calendar.py`, `notices.py`, `references.py`, `feedback.py`, `chat.py`
 - **Migrations**: Alembic in `alembic/` — always import new model modules in `alembic/env.py`
 - **Storage**: Local filesystem or S3/GCS via `services/storage.py` (`STORAGE_BACKEND=s3`)
 
@@ -131,7 +137,8 @@ Uses `services/tabular_export_service.py` — `TabularExportService.to_csv()` / 
 ```
 OPENAI_API_KEY=
 TAVILY_API_KEY=
-ANTHROPIC_API_KEY=           # for Haiku/Sonnet models
+ANTHROPIC_API_KEY=           # for Haiku/Sonnet models (legacy)
+GOOGLE_API_KEY=              # Gemini 2.5 Pro / 2.0 Flash (primary LLM)
 DATABASE_URL=sqlite+aiosqlite:///./micro_saas.db
 CHECKPOINTER_DB_PATH=Database/checkpointer.db
 SECRET_KEY=                  # REQUIRED — no safe default
@@ -159,7 +166,8 @@ See `.env.production` for production template with Cloud SQL + GCS + Secret Mana
 ## External Dependencies
 
 - **Tesseract OCR**: must be installed separately (Windows: UB-Mannheim, Docker: apt package)
-- **LLM**: Anthropic Haiku 4.5 (chat/extraction), Sonnet 4.6 (reports/remediation) + OpenAI `text-embedding-3-small`
+- **LLM**: Gemini 2.5 Pro (extraction/evaluation/drafting), Gemini 2.0 Flash (routing/reranking/query expansion). Fallback: OpenAI gpt-4o-mini. Embeddings: OpenAI `text-embedding-3-small`
+- **langchain-google-genai**: `langchain-google-genai>=4.2.1` — Google Gemini integration
 - **razorpay**: installed via uv
 - **markdown**: `markdown==3.10.2` — converts AI-generated markdown to HTML for emails/webhooks
 - **Rate limiting**: slowapi middleware on all routes
@@ -229,4 +237,7 @@ See plan file or `scripts/migrate_sqlite_to_postgres.py` for SQLite → PostgreS
 | EmailService | services/email_service.py | SMTP/SendGrid email: audit dispatch, notice reply, deadline reminders |
 | StorageService | services/storage.py | Local or S3/GCS file storage |
 | Scheduler | services/scheduler.py | APScheduler background jobs |
+| LLMConfig | services/llm_config.py | Central LLM factory: Gemini Pro/Flash with OpenAI fallback |
+| Reranker | services/reranker.py | Rerank retrieved chunks by relevance (Gemini Flash) |
+| QueryExpander | services/query_expander.py | Generate targeted retrieval queries per compliance check |
 | RateLimit | api/rate_limit.py | slowapi rate limiting (auth: 10/min) |

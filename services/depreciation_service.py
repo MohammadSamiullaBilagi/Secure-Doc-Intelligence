@@ -76,15 +76,11 @@ class DepreciationService:
 
     def extract_asset_register(self, raw_text: str) -> list[dict]:
         """Use LLM to extract fixed asset register into structured JSON."""
-        from langchain_openai import ChatOpenAI
+        from services.llm_config import get_json_llm
 
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            model_kwargs={"response_format": {"type": "json_object"}},
-        )
+        llm = get_json_llm(heavy=True)
 
-        truncated = raw_text[:12000]
+        truncated = raw_text[:100000]  # Gemini handles much larger context
 
         prompt = f"""Extract the fixed asset register from this document into a JSON object.
 
