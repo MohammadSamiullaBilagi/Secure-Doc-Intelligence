@@ -16,34 +16,48 @@ AMOUNT_TOLERANCE = 1.0  # Rs 1 tolerance for rounding differences
 def _normalize_invoice_no(inv_no: str) -> str:
     """Normalize an invoice number for matching.
 
-    Uppercases, removes spaces/hyphens/slashes, strips leading zeros
-    from purely numeric segments.
+    Uppercases, splits on separators first, strips leading zeros
+    from purely numeric segments, then rejoins without separators.
     """
     if not inv_no:
         return ""
     s = inv_no.upper().strip()
-    s = re.sub(r"[\s\-/]", "", s)
-    # Strip leading zeros from numeric-only segments
-    # Split by non-digit boundaries, strip zeros, rejoin
-    parts = re.split(r"(\D+)", s)
+    # Split into segments at separator boundaries FIRST
+    segments = re.split(r"[\s\-/]+", s)
     normalized = []
-    for part in parts:
-        if part.isdigit():
-            normalized.append(part.lstrip("0") or "0")
-        else:
-            normalized.append(part)
+    for seg in segments:
+        # Within each segment, split by non-digit boundaries and strip zeros
+        parts = re.split(r"(\D+)", seg)
+        for part in parts:
+            if part.isdigit():
+                normalized.append(part.lstrip("0") or "0")
+            elif part:
+                normalized.append(part)
     return "".join(normalized)
 
 
 def _parse_float(val) -> float:
-    """Safely parse a value to float."""
+    """Safely parse a value to float, including Indian lakh/crore suffixes."""
     if val is None:
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
     try:
-        cleaned = str(val).replace(",", "").replace(" ", "").strip()
-        return float(cleaned) if cleaned else 0.0
+        cleaned = str(val).replace(",", "").strip()
+        if not cleaned:
+            return 0.0
+        # Detect Indian number suffixes
+        cleaned_lower = cleaned.lower().strip()
+        multiplier = 1
+        if re.search(r"(lakhs?|lacs?)$", cleaned_lower):
+            cleaned = re.sub(r"\s*(lakhs?|lacs?)$", "", cleaned_lower).strip()
+            multiplier = 100_000
+        elif re.search(r"(crores?|cr)$", cleaned_lower):
+            cleaned = re.sub(r"\s*(crores?|cr)$", "", cleaned_lower).strip()
+            multiplier = 1_00_00_000
+        else:
+            cleaned = cleaned.replace(" ", "")
+        return float(cleaned) * multiplier if cleaned else 0.0
     except (ValueError, TypeError):
         return 0.0
 
@@ -81,6 +95,7 @@ _TAXABLE_ALIASES = {"taxable value", "taxable_value", "basic amount",
 _IGST_ALIASES = {"igst", "integrated tax", "igst amount", "igst_amount"}
 _CGST_ALIASES = {"cgst", "central tax", "cgst amount", "cgst_amount"}
 _SGST_ALIASES = {"sgst", "state tax", "sgst amount", "sgst_amount", "utgst"}
+_CESS_ALIASES = {"cess", "gst cess", "compensation cess", "cess amount", "cess_amount"}
 
 
 def _find_column(df_columns: list, aliases: set) -> str | None:
@@ -111,6 +126,7 @@ def _record_from_row(row: dict, source: str) -> dict | None:
     igst = _parse_float(_get(_IGST_ALIASES))
     cgst = _parse_float(_get(_CGST_ALIASES))
     sgst = _parse_float(_get(_SGST_ALIASES))
+    cess = _parse_float(_get(_CESS_ALIASES))
 
     return {
         "gstin_supplier": gstin,
@@ -120,7 +136,8 @@ def _record_from_row(row: dict, source: str) -> dict | None:
         "igst": igst,
         "cgst": cgst,
         "sgst": sgst,
-        "total_tax": igst + cgst + sgst,
+        "cess": cess,
+        "total_tax": igst + cgst + sgst + cess,
         "itc_available": True,
         "source": source,
     }
@@ -172,12 +189,14 @@ def _extract_gstr2b_json(path: Path) -> list[dict]:
             igst = 0.0
             cgst = 0.0
             sgst = 0.0
+            cess = 0.0
             taxable = 0.0
             for item in inv.get("items", []):
                 taxable += _parse_float(item.get("txval", 0))
                 igst += _parse_float(item.get("igst", 0))
                 cgst += _parse_float(item.get("cgst", 0))
                 sgst += _parse_float(item.get("sgst", 0))
+                cess += _parse_float(item.get("cess", 0))
 
             records.append({
                 "gstin_supplier": ctin.upper().strip(),
@@ -187,8 +206,10 @@ def _extract_gstr2b_json(path: Path) -> list[dict]:
                 "igst": igst,
                 "cgst": cgst,
                 "sgst": sgst,
-                "total_tax": igst + cgst + sgst,
+                "cess": cess,
+                "total_tax": igst + cgst + sgst + cess,
                 "itc_available": inv.get("itcavl", "Y") == "Y",
+                "is_rcm": inv.get("rev", "N") == "Y",
                 "source": "gstr2b",
             })
 
@@ -261,8 +282,10 @@ def extract_purchase_register(file_path: str) -> list[dict]:
     else:
         logger.warning(f"Unsupported purchase register format: {path.suffix}")
 
-    logger.info(f"Purchase Register: Extracted {len(records)} records from {path.name}")
-    return records
+    # Validate GSTIN format (same filter as GSTR-2B extraction)
+    valid = [r for r in records if GSTIN_REGEX.match(r.get("gstin_supplier", ""))]
+    logger.info(f"Purchase Register: Extracted {len(records)} records, {len(valid)} with valid GSTIN from {path.name}")
+    return valid
 
 
 # ---------------------------------------------------------------------------
@@ -273,24 +296,52 @@ def reconcile(gstr2b_records: list[dict], purchase_records: list[dict]) -> dict:
     """Core matching logic — pure Python, no LLM.
 
     Matching key: (normalized gstin_supplier, normalized invoice_no)
+    Features: ITC eligibility tracking, cess support, date mismatch detection,
+    duplicate handling, fuzzy matching fallback.
     """
     def _make_key(rec: dict) -> tuple:
         gstin = rec.get("gstin_supplier", "").upper().strip()
         inv = _normalize_invoice_no(rec.get("invoice_no", ""))
         return (gstin, inv)
 
-    # Build lookup dicts
+    # --- Build lookup dicts with duplicate detection ---
     gstr2b_map: dict[tuple, dict] = {}
+    gstr2b_dupes: list[dict] = []
     for rec in gstr2b_records:
         key = _make_key(rec)
         if key[0] and key[1]:
-            gstr2b_map[key] = rec
+            if key in gstr2b_map:
+                # GSTR-2B duplicate: likely amendment — aggregate values
+                existing = gstr2b_map[key]
+                existing["taxable_value"] = existing.get("taxable_value", 0) + rec.get("taxable_value", 0)
+                existing["igst"] = existing.get("igst", 0) + rec.get("igst", 0)
+                existing["cgst"] = existing.get("cgst", 0) + rec.get("cgst", 0)
+                existing["sgst"] = existing.get("sgst", 0) + rec.get("sgst", 0)
+                existing["cess"] = existing.get("cess", 0) + rec.get("cess", 0)
+                existing["total_tax"] = (existing["igst"] + existing["cgst"]
+                                         + existing["sgst"] + existing.get("cess", 0))
+                gstr2b_dupes.append({
+                    "gstin": key[0], "invoice_no": rec.get("invoice_no", ""),
+                    "action": "aggregated",
+                    "taxable_value": rec.get("taxable_value", 0),
+                })
+            else:
+                gstr2b_map[key] = rec
 
     purchase_map: dict[tuple, dict] = {}
+    purchase_dupes: list[dict] = []
     for rec in purchase_records:
         key = _make_key(rec)
         if key[0] and key[1]:
-            purchase_map[key] = rec
+            if key in purchase_map:
+                # Purchase register duplicate: flag as potential data entry error
+                purchase_dupes.append({
+                    "gstin": key[0], "invoice_no": rec.get("invoice_no", ""),
+                    "action": "duplicate_flagged",
+                    "taxable_value": rec.get("taxable_value", 0),
+                })
+            else:
+                purchase_map[key] = rec
 
     all_keys = set(gstr2b_map.keys()) | set(purchase_map.keys())
 
@@ -301,7 +352,9 @@ def reconcile(gstr2b_records: list[dict], purchase_records: list[dict]) -> dict:
 
     itc_available = 0.0
     itc_at_risk = 0.0
+    itc_ineligible = 0.0
     itc_mismatch_amount = 0.0
+    total_cess = 0.0
 
     for key in all_keys:
         in_2b = key in gstr2b_map
@@ -311,76 +364,121 @@ def reconcile(gstr2b_records: list[dict], purchase_records: list[dict]) -> dict:
             rec_2b = gstr2b_map[key]
             rec_pr = purchase_map[key]
 
-            taxable_diff = abs(rec_2b["taxable_value"] - rec_pr["taxable_value"])
-            tax_diff = abs(rec_2b["total_tax"] - rec_pr["total_tax"])
+            taxable_2b = rec_2b.get("taxable_value", 0.0)
+            taxable_pr = rec_pr.get("taxable_value", 0.0)
+            tax_2b = rec_2b.get("total_tax", 0.0)
+            tax_pr = rec_pr.get("total_tax", 0.0)
+            taxable_diff = abs(taxable_2b - taxable_pr)
+            tax_diff = abs(tax_2b - tax_pr)
+
+            date_2b = rec_2b.get("invoice_date") or "N/A"
+            date_pr = rec_pr.get("invoice_date") or "N/A"
+            itc_eligible = rec_2b.get("itc_available", True)
 
             combined = {
-                "gstin_supplier": rec_2b["gstin_supplier"],
-                "invoice_no": rec_2b["invoice_no"],
-                "invoice_date_2b": rec_2b["invoice_date"] or "N/A",
-                "invoice_date_books": rec_pr["invoice_date"] or "N/A",
-                "taxable_value_2b": rec_2b["taxable_value"],
-                "taxable_value_books": rec_pr["taxable_value"],
-                "total_tax_2b": rec_2b["total_tax"],
-                "total_tax_books": rec_pr["total_tax"],
+                "gstin_supplier": rec_2b.get("gstin_supplier", ""),
+                "invoice_no": rec_2b.get("invoice_no", ""),
+                "invoice_date_2b": date_2b,
+                "invoice_date_books": date_pr,
+                "taxable_value_2b": taxable_2b,
+                "taxable_value_books": taxable_pr,
+                "total_tax_2b": tax_2b,
+                "total_tax_books": tax_pr,
+                "cess_2b": rec_2b.get("cess", 0.0),
+                "cess_books": rec_pr.get("cess", 0.0),
                 "taxable_diff": round(taxable_diff, 2),
                 "tax_diff": round(tax_diff, 2),
+                "itc_eligible": itc_eligible,
                 # Normalized fields for frontend
-                "gstin": rec_2b["gstin_supplier"],
-                "date": rec_2b["invoice_date"] or "N/A",
-                "taxable_value": rec_2b["taxable_value"],
-                "total_tax": rec_2b["total_tax"],
+                "gstin": rec_2b.get("gstin_supplier", ""),
+                "date": date_2b,
+                "taxable_value": taxable_2b,
+                "total_tax": tax_2b,
             }
 
-            if taxable_diff > AMOUNT_TOLERANCE or tax_diff > AMOUNT_TOLERANCE:
-                combined["mismatch_type"] = []
-                if taxable_diff > AMOUNT_TOLERANCE:
-                    combined["mismatch_type"].append("VALUE_MISMATCH")
-                if tax_diff > AMOUNT_TOLERANCE:
-                    combined["mismatch_type"].append("TAX_MISMATCH")
-                combined["remark"] = ", ".join(combined["mismatch_type"])
+            # Detect mismatch types
+            mismatch_types = []
+            if taxable_diff > AMOUNT_TOLERANCE:
+                mismatch_types.append("VALUE_MISMATCH")
+            if tax_diff > AMOUNT_TOLERANCE:
+                mismatch_types.append("TAX_MISMATCH")
+            # Date mismatch is informational — doesn't affect ITC
+            if date_2b != "N/A" and date_pr != "N/A" and date_2b != date_pr:
+                mismatch_types.append("DATE_MISMATCH")
+
+            has_value_or_tax_mismatch = "VALUE_MISMATCH" in mismatch_types or "TAX_MISMATCH" in mismatch_types
+
+            if has_value_or_tax_mismatch:
+                combined["mismatch_type"] = mismatch_types
+                combined["remark"] = ", ".join(mismatch_types)
                 value_mismatch.append(combined)
-                itc_mismatch_amount += abs(rec_2b["total_tax"] - rec_pr["total_tax"])
+                itc_mismatch_amount += abs(tax_2b - tax_pr)
             else:
-                combined["remark"] = ""
+                combined["mismatch_type"] = mismatch_types  # may contain DATE_MISMATCH
+                combined["remark"] = ", ".join(mismatch_types) if mismatch_types else ""
                 matched.append(combined)
-                itc_available += rec_2b["total_tax"]
+                if itc_eligible:
+                    itc_available += tax_2b
+                else:
+                    itc_ineligible += tax_2b
+
+            total_cess += rec_2b.get("cess", 0.0)
 
         elif in_2b and not in_pr:
             rec_2b = gstr2b_map[key]
+            tax_2b = rec_2b.get("total_tax", 0.0)
+            itc_eligible = rec_2b.get("itc_available", True)
             missing_in_books.append({
-                "gstin_supplier": rec_2b["gstin_supplier"],
-                "invoice_no": rec_2b["invoice_no"],
-                "invoice_date": rec_2b["invoice_date"] or "N/A",
-                "taxable_value": rec_2b["taxable_value"],
-                "total_tax": rec_2b["total_tax"],
+                "gstin_supplier": rec_2b.get("gstin_supplier", ""),
+                "invoice_no": rec_2b.get("invoice_no", ""),
+                "invoice_date": rec_2b.get("invoice_date") or "N/A",
+                "taxable_value": rec_2b.get("taxable_value", 0.0),
+                "total_tax": tax_2b,
+                "cess": rec_2b.get("cess", 0.0),
+                "itc_eligible": itc_eligible,
                 "remark": "In GSTR-2B but not in purchase register — ITC available but unclaimed",
                 # Normalized fields for frontend
-                "gstin": rec_2b["gstin_supplier"],
-                "date": rec_2b["invoice_date"] or "N/A",
+                "gstin": rec_2b.get("gstin_supplier", ""),
+                "date": rec_2b.get("invoice_date") or "N/A",
             })
-            itc_available += rec_2b["total_tax"]
+            if itc_eligible:
+                itc_available += tax_2b
+            else:
+                itc_ineligible += tax_2b
+            total_cess += rec_2b.get("cess", 0.0)
 
         else:  # in_pr and not in_2b
             rec_pr = purchase_map[key]
+            tax_pr = rec_pr.get("total_tax", 0.0)
             missing_in_gstr2b.append({
-                "gstin_supplier": rec_pr["gstin_supplier"],
-                "invoice_no": rec_pr["invoice_no"],
-                "invoice_date": rec_pr["invoice_date"] or "N/A",
-                "taxable_value": rec_pr["taxable_value"],
-                "total_tax": rec_pr["total_tax"],
+                "gstin_supplier": rec_pr.get("gstin_supplier", ""),
+                "invoice_no": rec_pr.get("invoice_no", ""),
+                "invoice_date": rec_pr.get("invoice_date") or "N/A",
+                "taxable_value": rec_pr.get("taxable_value", 0.0),
+                "total_tax": tax_pr,
+                "cess": rec_pr.get("cess", 0.0),
                 "remark": "In purchase register but NOT in GSTR-2B — ITC at risk, needs supplier follow-up",
                 # Normalized fields for frontend
-                "gstin": rec_pr["gstin_supplier"],
-                "date": rec_pr["invoice_date"] or "N/A",
+                "gstin": rec_pr.get("gstin_supplier", ""),
+                "date": rec_pr.get("invoice_date") or "N/A",
             })
-            itc_at_risk += rec_pr["total_tax"]
+            itc_at_risk += tax_pr
+
+    # --- Fuzzy matching fallback for unmatched records ---
+    potential_matches = _fuzzy_match_unmatched(
+        gstr2b_map, purchase_map, missing_in_books, missing_in_gstr2b
+    )
+
+    duplicate_count = len(gstr2b_dupes) + len(purchase_dupes)
 
     return {
         "matched": matched,
         "value_mismatch": value_mismatch,
         "missing_in_books": missing_in_books,
         "missing_in_gstr2b": missing_in_gstr2b,
+        "potential_matches": potential_matches,
+        "duplicates_2b": gstr2b_dupes,
+        "duplicates_books": purchase_dupes,
         "summary": {
             "total_invoices_gstr2b": len(gstr2b_records),
             "total_invoices_books": len(purchase_records),
@@ -390,6 +488,49 @@ def reconcile(gstr2b_records: list[dict], purchase_records: list[dict]) -> dict:
             "missing_in_gstr2b_count": len(missing_in_gstr2b),
             "itc_available": round(itc_available, 2),
             "itc_at_risk": round(itc_at_risk, 2),
+            "itc_ineligible": round(itc_ineligible, 2),
             "itc_mismatch_amount": round(itc_mismatch_amount, 2),
+            "total_cess": round(total_cess, 2),
+            "duplicate_count": duplicate_count,
+            "potential_match_count": len(potential_matches),
         },
     }
+
+
+def _fuzzy_match_unmatched(
+    gstr2b_map: dict, purchase_map: dict,
+    missing_in_books: list, missing_in_gstr2b: list,
+) -> list[dict]:
+    """Second-pass fuzzy matching for unmatched records with same GSTIN."""
+    potential_matches = []
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        logger.info("rapidfuzz not installed — skipping fuzzy matching")
+        return potential_matches
+
+    # Collect unmatched keys
+    unmatched_2b_keys = {
+        (_normalize_invoice_no(r.get("invoice_no", "")), r.get("gstin_supplier", "").upper(), r.get("invoice_no", ""))
+        for r in missing_in_books
+    }
+    unmatched_pr_keys = {
+        (_normalize_invoice_no(r.get("invoice_no", "")), r.get("gstin_supplier", "").upper(), r.get("invoice_no", ""))
+        for r in missing_in_gstr2b
+    }
+
+    for norm_2b, gstin_2b, raw_2b in unmatched_2b_keys:
+        for norm_pr, gstin_pr, raw_pr in unmatched_pr_keys:
+            if gstin_2b != gstin_pr:
+                continue
+            similarity = fuzz.ratio(norm_2b, norm_pr)
+            if similarity >= 80:
+                potential_matches.append({
+                    "gstin": gstin_2b,
+                    "invoice_2b": raw_2b,
+                    "invoice_books": raw_pr,
+                    "similarity": similarity,
+                    "confidence": "high" if similarity >= 90 else "medium",
+                })
+
+    return potential_matches

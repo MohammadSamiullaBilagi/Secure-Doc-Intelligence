@@ -84,6 +84,9 @@ async def process_reconciliation(recon_id: str):
             recon.missing_in_gstr2b_count = summary["missing_in_gstr2b_count"]
             recon.total_itc_available = summary["itc_available"]
             recon.total_itc_at_risk = summary["itc_at_risk"]
+            recon.total_itc_ineligible = summary.get("itc_ineligible", 0.0)
+            recon.total_cess = summary.get("total_cess", 0.0)
+            recon.duplicate_count = summary.get("duplicate_count", 0)
             recon.status = "completed"
             await db.commit()
 
@@ -213,6 +216,9 @@ async def get_reconciliation_history(
             "missing_in_gstr2b_count": r.missing_in_gstr2b_count,
             "total_itc_available": r.total_itc_available,
             "total_itc_at_risk": r.total_itc_at_risk,
+            "total_itc_ineligible": getattr(r, "total_itc_ineligible", 0.0),
+            "total_cess": getattr(r, "total_cess", 0.0),
+            "duplicate_count": getattr(r, "duplicate_count", 0),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in recons
@@ -332,6 +338,9 @@ async def get_reconciliation(
         "missing_in_gstr2b_count": recon.missing_in_gstr2b_count,
         "total_itc_available": recon.total_itc_available,
         "total_itc_at_risk": recon.total_itc_at_risk,
+        "total_itc_ineligible": getattr(recon, "total_itc_ineligible", 0.0),
+        "total_cess": getattr(recon, "total_cess", 0.0),
+        "duplicate_count": getattr(recon, "duplicate_count", 0),
         "created_at": recon.created_at.isoformat() if recon.created_at else None,
     }
 
@@ -388,22 +397,27 @@ def _extract_gst_recon_tables(result_json: dict) -> dict:
 
     # Matched invoices
     matched = result_json.get("matched", [])
-    headers = ["GSTIN", "Invoice No", "Invoice Date", "Taxable Value", "Total Tax", "Remark"]
+    headers = ["GSTIN", "Invoice No", "Invoice Date (2B)", "Invoice Date (Books)",
+               "Taxable Value", "Total Tax", "Cess", "ITC Eligible", "Remark"]
     rows = []
     for r in matched:
         rows.append([
             r.get("gstin_supplier", ""),
             r.get("invoice_no", ""),
-            r.get("invoice_date", r.get("invoice_date_2b", "")),
+            r.get("invoice_date_2b", r.get("invoice_date", "")),
+            r.get("invoice_date_books", ""),
             r.get("taxable_value", r.get("taxable_value_2b", 0)),
             r.get("total_tax", r.get("total_tax_2b", 0)),
+            r.get("cess_2b", r.get("cess", 0)),
+            "Yes" if r.get("itc_eligible", True) else "No",
             r.get("remark", ""),
         ])
     tables["Matched"] = (headers, rows)
 
     # Value mismatches
     mismatches = result_json.get("value_mismatch", [])
-    headers_mm = ["GSTIN", "Invoice No", "Taxable 2B", "Taxable Books", "Tax 2B", "Tax Books", "Mismatch Type"]
+    headers_mm = ["GSTIN", "Invoice No", "Taxable 2B", "Taxable Books",
+                  "Tax 2B", "Tax Books", "Cess 2B", "Cess Books", "ITC Eligible", "Mismatch Type"]
     rows_mm = []
     for r in mismatches:
         rows_mm.append([
@@ -413,33 +427,66 @@ def _extract_gst_recon_tables(result_json: dict) -> dict:
             r.get("taxable_value_books", 0),
             r.get("total_tax_2b", 0),
             r.get("total_tax_books", 0),
+            r.get("cess_2b", 0),
+            r.get("cess_books", 0),
+            "Yes" if r.get("itc_eligible", True) else "No",
             ", ".join(r.get("mismatch_type", [])) if isinstance(r.get("mismatch_type"), list) else str(r.get("mismatch_type", "")),
         ])
     tables["Value Mismatches"] = (headers_mm, rows_mm)
 
-    # Missing in books
+    # Missing in books — records use plain keys (invoice_date, taxable_value, total_tax)
     missing_books = result_json.get("missing_in_books", [])
-    headers_mb = ["GSTIN", "Invoice No", "Invoice Date", "Taxable Value", "Total Tax"]
+    headers_mb = ["GSTIN", "Invoice No", "Invoice Date", "Taxable Value", "Total Tax", "Cess", "ITC Eligible"]
     rows_mb = [[
         r.get("gstin_supplier", ""),
         r.get("invoice_no", ""),
-        r.get("invoice_date_2b", ""),
-        r.get("taxable_value_2b", 0),
-        r.get("total_tax_2b", 0),
+        r.get("invoice_date", ""),
+        r.get("taxable_value", 0),
+        r.get("total_tax", 0),
+        r.get("cess", 0),
+        "Yes" if r.get("itc_eligible", True) else "No",
     ] for r in missing_books]
     tables["Missing In Books"] = (headers_mb, rows_mb)
 
-    # Missing in GSTR-2B
+    # Missing in GSTR-2B — records use plain keys
     missing_gstr2b = result_json.get("missing_in_gstr2b", [])
-    headers_mg = ["GSTIN", "Invoice No", "Invoice Date", "Taxable Value", "Total Tax"]
+    headers_mg = ["GSTIN", "Invoice No", "Invoice Date", "Taxable Value", "Total Tax", "Cess"]
     rows_mg = [[
         r.get("gstin_supplier", ""),
         r.get("invoice_no", ""),
-        r.get("invoice_date_books", ""),
-        r.get("taxable_value_books", 0),
-        r.get("total_tax_books", 0),
+        r.get("invoice_date", ""),
+        r.get("taxable_value", 0),
+        r.get("total_tax", 0),
+        r.get("cess", 0),
     ] for r in missing_gstr2b]
     tables["Missing In GSTR-2B"] = (headers_mg, rows_mg)
+
+    # Potential matches (fuzzy matching)
+    potential = result_json.get("potential_matches", [])
+    if potential:
+        headers_pm = ["GSTIN", "Invoice (GSTR-2B)", "Invoice (Books)", "Similarity %", "Confidence"]
+        rows_pm = [[
+            r.get("gstin", ""),
+            r.get("invoice_2b", ""),
+            r.get("invoice_books", ""),
+            r.get("similarity", 0),
+            r.get("confidence", ""),
+        ] for r in potential]
+        tables["Potential Matches"] = (headers_pm, rows_pm)
+
+    # Duplicates
+    dupes_2b = result_json.get("duplicates_2b", [])
+    dupes_books = result_json.get("duplicates_books", [])
+    if dupes_2b or dupes_books:
+        headers_d = ["Source", "GSTIN", "Invoice No", "Action", "Taxable Value"]
+        rows_d = []
+        for d in dupes_2b:
+            rows_d.append(["GSTR-2B", d.get("gstin", ""), d.get("invoice_no", ""),
+                          d.get("action", ""), d.get("taxable_value", 0)])
+        for d in dupes_books:
+            rows_d.append(["Purchase Register", d.get("gstin", ""), d.get("invoice_no", ""),
+                          d.get("action", ""), d.get("taxable_value", 0)])
+        tables["Duplicates"] = (headers_d, rows_d)
 
     return tables
 
@@ -484,7 +531,11 @@ def _generate_recon_pdf(recon: GSTReconciliation, user, db) -> BytesIO:
         f"Missing in GSTR-2B: {summary.get('missing_in_gstr2b_count', 0)}",
         f"ITC Available: Rs. {summary.get('itc_available', 0):,.2f}",
         f"ITC At Risk: Rs. {summary.get('itc_at_risk', 0):,.2f}",
+        f"ITC Ineligible: Rs. {summary.get('itc_ineligible', 0):,.2f}",
         f"ITC Mismatch Amount: Rs. {summary.get('itc_mismatch_amount', 0):,.2f}",
+        f"Total Cess: Rs. {summary.get('total_cess', 0):,.2f}",
+        f"Duplicates Found: {summary.get('duplicate_count', 0)}",
+        f"Potential Matches (Fuzzy): {summary.get('potential_match_count', 0)}",
     ]
     for s in stats:
         pdf.cell(0, 6, _sanitize_text(s), ln=True)
@@ -538,6 +589,30 @@ def _generate_recon_pdf(recon: GSTReconciliation, user, db) -> BytesIO:
                     result.get("missing_in_books", []), (100, 100, 180))
     _render_section(f"Missing in GSTR-2B - ITC AT RISK ({summary.get('missing_in_gstr2b_count', 0)})",
                     result.get("missing_in_gstr2b", []), (200, 0, 0))
+
+    # Potential matches (fuzzy)
+    potential = result.get("potential_matches", [])
+    if potential:
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.set_text_color(128, 0, 128)
+        pdf.cell(0, 9, _sanitize_text(f"Potential Matches - Review Suggested ({len(potential)})"), ln=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_fill_color(240, 240, 240)
+        pm_cols = [35, 40, 40, 25, 25]
+        pm_headers = ["GSTIN", "Invoice (2B)", "Invoice (Books)", "Similarity", "Confidence"]
+        for i, h in enumerate(pm_headers):
+            pdf.cell(pm_cols[i], 5, h, border=1, fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 6)
+        for pm in potential[:20]:
+            pdf.cell(pm_cols[0], 4, _sanitize_text(str(pm.get("gstin", ""))[:15]), border=1)
+            pdf.cell(pm_cols[1], 4, _sanitize_text(str(pm.get("invoice_2b", ""))[:20]), border=1)
+            pdf.cell(pm_cols[2], 4, _sanitize_text(str(pm.get("invoice_books", ""))[:20]), border=1)
+            pdf.cell(pm_cols[3], 4, _sanitize_text(f"{pm.get('similarity', 0)}%"), border=1)
+            pdf.cell(pm_cols[4], 4, _sanitize_text(str(pm.get("confidence", ""))), border=1)
+            pdf.ln()
+        pdf.ln(3)
 
     # Footer
     from datetime import datetime

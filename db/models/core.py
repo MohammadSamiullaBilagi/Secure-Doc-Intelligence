@@ -148,6 +148,9 @@ class GSTReconciliation(Base, TimestampMixin):
     missing_in_gstr2b_count: Mapped[int] = mapped_column(default=0)
     total_itc_available: Mapped[float] = mapped_column(default=0.0)
     total_itc_at_risk: Mapped[float] = mapped_column(default=0.0)
+    total_itc_ineligible: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    total_cess: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    duplicate_count: Mapped[int] = mapped_column(default=0, server_default="0")
 
     # Relationships
     user: Mapped["User"] = relationship("User")

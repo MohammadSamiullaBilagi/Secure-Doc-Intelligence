@@ -1,0 +1,321 @@
+{
+  "data": {
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "29AABCU9603R1Z5",
+          "trdnm": "Acme Technologies Pvt Ltd",
+          "inv": [
+            {
+              "inum": "ACM/2025-26/1234",
+              "dt": "05-03-2026",
+              "val": 118000,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "srctyp": "e-Invoice",
+              "irn": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+              "irngendate": "05-03-2026",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 100000.00,
+                  "igst": 0,
+                  "cgst": 9000.00,
+                  "sgst": 9000.00,
+                  "cess": 0
+                }
+              ]
+            },
+            {
+              "inum": "ACM/2025-26/1298",
+              "dt": "15-03-2026",
+              "val": 59000,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 50000.00,
+                  "igst": 0,
+                  "cgst": 4500.00,
+                  "sgst": 4500.00,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "07AADCB2230M1Z3",
+          "trdnm": "Bright Solutions LLP",
+          "inv": [
+            {
+              "inum": "BS-4501",
+              "dt": "02-03-2026",
+              "val": 236000,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 200000.00,
+                  "igst": 36000.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            },
+            {
+              "inum": "BS-4567",
+              "dt": "20-03-2026",
+              "val": 56640,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 48000.00,
+                  "igst": 8640.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAECR5055K1Z8",
+          "trdnm": "Rajesh Steel Industries",
+          "inv": [
+            {
+              "inum": "RSI/INV/2026/0345",
+              "dt": "10-03-2026",
+              "val": 590000,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 400000.00,
+                  "igst": 72000.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                },
+                {
+                  "num": 2,
+                  "rt": 18,
+                  "txval": 100000.00,
+                  "igst": 18000.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AAHCP7654R1Z9",
+          "trdnm": "Premier Packaging Co",
+          "inv": [
+            {
+              "inum": "PPC-0089",
+              "dt": "08-03-2026",
+              "val": 35400,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 30000.00,
+                  "igst": 5400.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "29AADCN8765P1Z2",
+          "trdnm": "Naveen Logistics",
+          "inv": [
+            {
+              "inum": "NL/MAR/001",
+              "dt": "12-03-2026",
+              "val": 23600,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 20000.00,
+                  "igst": 0,
+                  "cgst": 1800.00,
+                  "sgst": 1800.00,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "29AAACW4201L1Z6",
+          "trdnm": "Wipro Enterprises Ltd",
+          "inv": [
+            {
+              "inum": "WEL-2026-78901",
+              "dt": "18-03-2026",
+              "val": 354000,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 300000.00,
+                  "igst": 0,
+                  "cgst": 27000.00,
+                  "sgst": 27000.00,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "36AABCT1332L1Z1",
+          "trdnm": "TechServe India Pvt Ltd",
+          "inv": [
+            {
+              "inum": "TS/26/MAR/0055",
+              "dt": "22-03-2026",
+              "val": 177000,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "N",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 150000.00,
+                  "igst": 27000.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "29AABCG5432N1Z7",
+          "trdnm": "Global Print Services",
+          "inv": [
+            {
+              "inum": "GPS-3344",
+              "dt": "25-03-2026",
+              "val": 11800,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 10000.00,
+                  "igst": 0,
+                  "cgst": 900.00,
+                  "sgst": 900.00,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "24AABCM6789Q1Z4",
+          "trdnm": "Metro Office Supplies",
+          "inv": [
+            {
+              "inum": "MOS/INV/2026/0221",
+              "dt": "28-03-2026",
+              "val": 70800,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 60000.00,
+                  "igst": 10800.00,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "29AADCK1234B1Z0",
+          "trdnm": "Krishna Hardware",
+          "inv": [
+            {
+              "inum": "KH-MAR-0056",
+              "dt": "14-03-2026",
+              "val": 47200,
+              "pos": "29",
+              "rev": "N",
+              "itcavl": "Y",
+              "srctyp": "e-Invoice",
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 40000.00,
+                  "igst": 0,
+                  "cgst": 3600.00,
+                  "sgst": 3600.00,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

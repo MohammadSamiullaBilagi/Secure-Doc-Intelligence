@@ -47,4 +47,5 @@ dependencies = [
     "psycopg2-binary>=2.9.11",
     "markdown>=3.10.2",
     "langchain-google-genai>=4.2.1",
+    "rapidfuzz>=3.14.3",
 ]
