@@ -6,7 +6,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
-MAX_INPUT_CHARS = 12_000
+MAX_INPUT_CHARS = 20_000
 
 
 # ---------------------------------------------------------------------------
@@ -14,14 +14,37 @@ MAX_INPUT_CHARS = 12_000
 # ---------------------------------------------------------------------------
 
 def _parse_float(val) -> float:
-    """Safely parse a value to float."""
+    """Safely parse a value to float, handling Indian notation (Rs., Lakhs, Crores)."""
     if val is None:
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
     try:
-        cleaned = str(val).replace(",", "").replace(" ", "").strip()
-        return float(cleaned) if cleaned else 0.0
+        s = str(val).strip()
+        if not s:
+            return 0.0
+        # Strip "Rs.", "INR", "₹" prefix
+        s = re.sub(r'^(Rs\.?|INR|₹)\s*', '', s, flags=re.IGNORECASE).strip()
+        # Handle negative with parentheses: (1,234.56) → -1234.56
+        neg = False
+        if s.startswith("(") and s.endswith(")"):
+            neg = True
+            s = s[1:-1].strip()
+        elif s.startswith("-"):
+            neg = True
+            s = s[1:].strip()
+        # Handle Lakh/Crore suffix notation: "5 Lakhs", "2.5 Cr"
+        m = re.match(r'^([\d,.]+)\s*(lakh|lac|lakhs|lacs|cr|crore|crores)\s*$', s, re.IGNORECASE)
+        if m:
+            num = float(m.group(1).replace(',', ''))
+            unit = m.group(2).lower()
+            multiplier = 10_000_000 if unit.startswith('cr') else 100_000
+            result = num * multiplier
+            return -result if neg else result
+        # Standard: remove commas and spaces
+        cleaned = s.replace(",", "").replace(" ", "")
+        result = float(cleaned) if cleaned else 0.0
+        return -result if neg else result
     except (ValueError, TypeError):
         return 0.0
 
@@ -189,7 +212,9 @@ class GSTR9ReconciliationService:
 
     def _parse_gstr1_text(self, text: str) -> dict:
         """Direct text parser for GSTR-1 returns."""
-        if "GSTR-1" not in text.upper() and "GSTR1" not in text.upper():
+        upper = text.upper()
+        gstr1_patterns = ["GSTR-1", "GSTR1", "GSTR 1", "GSTR- 1", "FORM GSTR"]
+        if not any(p in upper for p in gstr1_patterns):
             return {"error": "Not a GSTR-1 document"}
 
         gstin = self._extract_gstin(text)
@@ -282,7 +307,9 @@ class GSTR9ReconciliationService:
 
     def _parse_gstr3b_text(self, text: str) -> dict:
         """Direct text parser for GSTR-3B returns."""
-        if "GSTR-3B" not in text.upper() and "GSTR3B" not in text.upper():
+        upper = text.upper()
+        gstr3b_patterns = ["GSTR-3B", "GSTR3B", "GSTR 3B", "GSTR- 3B", "GSTR-3 B"]
+        if not any(p in upper for p in gstr3b_patterns):
             return {"error": "Not a GSTR-3B document"}
 
         gstin = self._extract_gstin(text)
@@ -294,6 +321,10 @@ class GSTR9ReconciliationService:
         cgst = 0.0
         sgst = 0.0
         cess = 0.0
+        rcm_taxable = 0.0
+        rcm_igst = 0.0
+        rcm_cgst = 0.0
+        rcm_sgst = 0.0
         itc_igst = 0.0
         itc_cgst = 0.0
         itc_sgst = 0.0
@@ -322,6 +353,17 @@ class GSTR9ReconciliationService:
                 vals = self._collect_amounts_after(lines, i)
                 if vals:
                     exempt_nil = vals[0]
+
+            # Table 3.1 - row (d) Inward supplies liable to reverse charge
+            elif "(d) Inward supplies" in stripped or "liable to reverse charge" in stripped.lower():
+                vals = self._collect_amounts_after(lines, i)
+                if len(vals) >= 4:
+                    rcm_taxable = vals[0]
+                    rcm_igst = vals[1]
+                    rcm_cgst = vals[2]
+                    rcm_sgst = vals[3]
+                elif vals:
+                    rcm_taxable = vals[0]
 
             # Table 4 - ITC Available row (A)
             elif "(A) ITC Available" in stripped:
@@ -375,6 +417,10 @@ class GSTR9ReconciliationService:
             "cgst": cgst,
             "sgst": sgst,
             "cess": cess,
+            "rcm_taxable": rcm_taxable,
+            "rcm_igst": rcm_igst,
+            "rcm_cgst": rcm_cgst,
+            "rcm_sgst": rcm_sgst,
             "itc_igst": itc_igst,
             "itc_cgst": itc_cgst,
             "itc_sgst": itc_sgst,
@@ -398,10 +444,11 @@ class GSTR9ReconciliationService:
             if not line:
                 continue
             # Stop if we hit a text label (non-numeric line that isn't just an amount)
-            if re.match(r"^-?[\d,]+\.\d{2}$", line):
-                amounts.append(_parse_float(line))
-            elif re.match(r"^-[\d,]+\.\d{2}$", line):
-                amounts.append(_parse_float(line))
+            # Match plain amounts: "1,234.56", "-1,234.56"
+            # Match amounts with Rs. prefix: "Rs. 1,234.56", "Rs.1,234.56"
+            if re.match(r"^(Rs\.?\s*)?-?[\d,]+\.\d{2}$", line):
+                clean = re.sub(r'^Rs\.?\s*', '', line)
+                amounts.append(_parse_float(clean))
             else:
                 # Line has text - stop collecting
                 break
@@ -457,21 +504,48 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
     Returns a dict with: summary, monthly_comparison, tax_reconciliation,
     books_reconciliation, itc_summary, gstr9_tables, action_items.
     """
-    # Index by normalized month key
+    # Index by normalized month key (detect duplicates)
     gstr1_by_month: dict[str, dict] = {}
+    gstr1_duplicates: list[str] = []
     for m in gstr1_months:
         key = _month_key(m.get("month", ""))
+        if key in gstr1_by_month:
+            gstr1_duplicates.append(key)
         gstr1_by_month[key] = m
 
     gstr3b_by_month: dict[str, dict] = {}
+    gstr3b_duplicates: list[str] = []
     for m in gstr3b_months:
         key = _month_key(m.get("month", ""))
+        if key in gstr3b_by_month:
+            gstr3b_duplicates.append(key)
         gstr3b_by_month[key] = m
 
     all_month_keys = sorted(set(gstr1_by_month.keys()) | set(gstr3b_by_month.keys()))
 
     action_items: list[dict] = []
     monthly_comparison: list[dict] = []
+    duplicate_warnings: list[str] = []
+
+    # Flag duplicate months
+    for dup in gstr1_duplicates:
+        duplicate_warnings.append(f"GSTR-1: duplicate data for month {dup} — last file used")
+        action_items.append({
+            "priority": 2,
+            "category": "DUPLICATE_MONTH",
+            "description": f"Multiple GSTR-1 files uploaded for {dup} — only last file's data was used",
+            "financial_impact": 0,
+            "recommendation": "Remove duplicate files and re-upload to ensure correct data is used.",
+        })
+    for dup in gstr3b_duplicates:
+        duplicate_warnings.append(f"GSTR-3B: duplicate data for month {dup} — last file used")
+        action_items.append({
+            "priority": 2,
+            "category": "DUPLICATE_MONTH",
+            "description": f"Multiple GSTR-3B files uploaded for {dup} — only last file's data was used",
+            "financial_impact": 0,
+            "recommendation": "Remove duplicate files and re-upload to ensure correct data is used.",
+        })
 
     # Accumulators
     gstr1_total_turnover = 0.0
@@ -497,6 +571,11 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
     tax_paid_itc = 0.0
 
     discrepancy_count = 0
+
+    # CDN & amendment accumulators
+    total_cdn = 0.0
+    total_amendments = 0.0
+    total_rcm_taxable = 0.0
 
     # -----------------------------------------------------------------------
     # Step 1 — Monthly outward supply comparison (GSTR-1 vs GSTR-3B)
@@ -541,14 +620,33 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
             })
         elif abs(turnover_diff) > 100:
             discrepancy_count += 1
+            # Build intelligent difference explanation
+            cdn = _parse_float(g1.get("credit_debit_notes"))
+            amend = _parse_float(g1.get("amendments"))
+            possible_reasons = []
+            if abs(cdn) > 0:
+                possible_reasons.append(f"CDN adjustment Rs.{cdn:,.0f}")
+            if abs(amend) > 0:
+                possible_reasons.append(f"amendments Rs.{amend:,.0f}")
+            unexplained = turnover_diff - cdn - amend
+            if abs(unexplained) > 100 and possible_reasons:
+                possible_reasons.append(f"unexplained gap Rs.{unexplained:,.0f}")
+            reason_text = (f" (possible: {', '.join(possible_reasons)})" if possible_reasons
+                           else " — check amendments, credit/debit notes")
             action_items.append({
                 "priority": 2 if sev == "HIGH" else 3,
                 "category": "TURNOVER_MISMATCH",
                 "description": (f"Month {mk}: GSTR-1 turnover Rs.{g1_turnover:,.0f} vs "
                                 f"GSTR-3B Rs.{g3_turnover:,.0f} (diff Rs.{turnover_diff:,.0f})"),
                 "financial_impact": abs(turnover_diff),
-                "recommendation": "Reconcile outward supplies — check amendments, credit/debit notes.",
+                "possible_reasons": possible_reasons if possible_reasons else None,
+                "recommendation": f"Reconcile outward supplies{reason_text}.",
             })
+
+        # Track CDN/amendments/RCM per month
+        month_cdn = _parse_float(g1.get("credit_debit_notes"))
+        month_amend = _parse_float(g1.get("amendments"))
+        month_rcm = _parse_float(g3.get("rcm_taxable"))
 
         monthly_comparison.append({
             "month": mk,
@@ -558,6 +656,8 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
             "gstr1_tax": round(g1_tax, 2),
             "gstr3b_tax": round(g3_tax, 2),
             "tax_diff": round(tax_diff, 2),
+            "credit_debit_notes": round(month_cdn, 2),
+            "amendments": round(month_amend, 2),
             "severity": sev,
         })
 
@@ -565,6 +665,9 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
         gstr1_total_turnover += g1_turnover
         gstr3b_total_turnover += g3_turnover
         gstr1_total_exempt += _parse_float(g1.get("exempt_nil"))
+        total_cdn += month_cdn
+        total_amendments += month_amend
+        total_rcm_taxable += month_rcm
 
         gstr1_igst += _parse_float(g1.get("igst"))
         gstr1_cgst += _parse_float(g1.get("cgst"))
@@ -625,6 +728,30 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
             "recommendation": "Review tax type breakdowns — check IGST/CGST/SGST individually for mismatches.",
         })
 
+    # Per-component tax mismatch detail (A2.7)
+    component_recommendations = {
+        "igst": "IGST gap may indicate inter-state vs intra-state supply classification error.",
+        "cgst": "CGST gap may indicate intra-state supply under/over-reporting.",
+        "sgst": "SGST gap usually mirrors CGST — if both differ, check state-level reporting.",
+        "cess": "Cess gap may indicate missing compensation cess on luxury/sin goods.",
+    }
+    for comp, (g1_val, g3_val) in [
+        ("igst", (gstr1_igst, gstr3b_igst)),
+        ("cgst", (gstr1_cgst, gstr3b_cgst)),
+        ("sgst", (gstr1_sgst, gstr3b_sgst)),
+        ("cess", (gstr1_cess, gstr3b_cess)),
+    ]:
+        comp_diff = g3_val - g1_val
+        if abs(comp_diff) > 500:
+            action_items.append({
+                "priority": 2,
+                "category": "TAX_COMPONENT_MISMATCH",
+                "description": (f"{comp.upper()} gap: GSTR-1 Rs.{g1_val:,.0f} vs "
+                                f"GSTR-3B Rs.{g3_val:,.0f} (diff Rs.{comp_diff:,.0f})"),
+                "financial_impact": abs(comp_diff),
+                "recommendation": component_recommendations[comp],
+            })
+
     # -----------------------------------------------------------------------
     # Step 3 — Books vs Returns
     # -----------------------------------------------------------------------
@@ -684,15 +811,16 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
         "itc_turnover_ratio_pct": round(itc_turnover_ratio, 2),
     }
 
-    if itc_turnover_ratio > 100:
+    if itc_turnover_ratio > 50:
         discrepancy_count += 1
+        severity_label = "critically high" if itc_turnover_ratio > 100 else "unusually high"
         action_items.append({
             "priority": 1,
             "category": "ITC_EXCESS",
-            "description": (f"ITC-to-turnover ratio is {itc_turnover_ratio:.1f}% — "
-                            f"Net ITC Rs.{net_itc:,.0f} exceeds total turnover Rs.{gstr3b_total_turnover:,.0f}"),
-            "financial_impact": net_itc - gstr3b_total_turnover,
-            "recommendation": "Review ITC claims — possible excess claim, duplicate entries, or incorrect turnover reporting.",
+            "description": (f"ITC-to-turnover ratio is {severity_label} at {itc_turnover_ratio:.1f}% — "
+                            f"Net ITC Rs.{net_itc:,.0f} vs turnover Rs.{gstr3b_total_turnover:,.0f}"),
+            "financial_impact": abs(net_itc - gstr3b_total_turnover * 0.20),
+            "recommendation": "Review ITC claims — possible excess claim, duplicate entries, or blocked ITC under Section 17(5). Normal ITC ratio is 5-20%.",
         })
 
     # -----------------------------------------------------------------------
@@ -725,6 +853,32 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
             "paid_through_cash": round(tax_paid_cash, 2),
             "paid_through_itc": round(tax_paid_itc, 2),
         },
+        "table_10_11": {
+            "description": "Amendments and Credit/Debit Notes",
+            "total_credit_debit_notes": round(total_cdn, 2),
+            "total_amendments": round(total_amendments, 2),
+            "net_adjustment": round(total_cdn + total_amendments, 2),
+            "adjusted_gstr1_turnover": round(gstr1_total_turnover + total_cdn + total_amendments, 2),
+        },
+    }
+
+    # Add RCM summary if any RCM data exists
+    if total_rcm_taxable > 0:
+        gstr9_tables["table_3_1_d"] = {
+            "description": "Inward supplies liable to reverse charge (Table 3.1(d) of GSTR-3B)",
+            "rcm_taxable": round(total_rcm_taxable, 2),
+        }
+
+    # CDN/Amendment reconciliation summary
+    cdn_reconciliation = {
+        "total_credit_debit_notes": round(total_cdn, 2),
+        "total_amendments": round(total_amendments, 2),
+        "net_adjustment": round(total_cdn + total_amendments, 2),
+        "gstr1_raw_turnover": round(gstr1_total_turnover, 2),
+        "gstr1_adjusted_turnover": round(gstr1_total_turnover + total_cdn + total_amendments, 2),
+        "adjusted_vs_gstr3b_diff": round(
+            (gstr1_total_turnover + total_cdn + total_amendments) - gstr3b_total_turnover, 2
+        ),
     }
 
     # -----------------------------------------------------------------------
@@ -749,12 +903,18 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
         "gstr1_total_turnover": round(gstr1_total_turnover, 2),
         "gstr3b_total_turnover": round(gstr3b_total_turnover, 2),
         "turnover_diff": round(gstr1_total_turnover - gstr3b_total_turnover, 2),
+        "total_cdn": round(total_cdn, 2),
+        "total_amendments": round(total_amendments, 2),
+        "adjusted_turnover_diff": round(
+            (gstr1_total_turnover + total_cdn + total_amendments) - gstr3b_total_turnover, 2
+        ),
         "gstr1_total_tax": round(gstr1_total_tax, 2),
         "gstr3b_total_tax": round(gstr3b_total_tax, 2),
         "tax_diff": round(tax_gap, 2),
         "discrepancy_count": discrepancy_count,
         "months_in_gstr1": len(gstr1_months),
         "months_in_gstr3b": len(gstr3b_months),
+        "months_analyzed": len(all_month_keys),
         "status": overall_status,
     }
 
@@ -762,8 +922,10 @@ def reconcile(gstr1_months: list[dict], gstr3b_months: list[dict],
         "summary": summary,
         "monthly_comparison": monthly_comparison,
         "tax_reconciliation": tax_reconciliation,
+        "cdn_reconciliation": cdn_reconciliation,
         "books_reconciliation": books_reconciliation,
         "itc_summary": itc_summary,
         "gstr9_tables": gstr9_tables,
         "action_items": action_items,
+        "duplicate_warnings": duplicate_warnings,
     }

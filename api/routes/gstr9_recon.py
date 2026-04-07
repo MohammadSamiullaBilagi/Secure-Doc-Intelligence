@@ -457,34 +457,30 @@ def _extract_gstr9_tables(result_json: dict) -> dict:
                  "GSTR1 Tax", "GSTR3B Tax", "Tax Diff", "Severity"]
     rows_m = [[
         m.get("month", ""),
-        m.get("gstr1_turnover", 0), m.get("gstr3b_turnover", 0), m.get("turnover_difference", 0),
-        m.get("gstr1_tax", 0), m.get("gstr3b_tax", 0), m.get("tax_difference", 0),
+        m.get("gstr1_turnover", 0), m.get("gstr3b_turnover", 0), m.get("turnover_diff", 0),
+        m.get("gstr1_tax", 0), m.get("gstr3b_tax", 0), m.get("tax_diff", 0),
         m.get("severity", ""),
     ] for m in monthly]
     tables["Monthly Comparison"] = (headers_m, rows_m)
 
-    # Tax Reconciliation
+    # Tax Reconciliation (flat-key structure from reconcile())
     tax_recon = result_json.get("tax_reconciliation", {})
     headers_t = ["Tax Type", "GSTR-1 Amount", "GSTR-3B Amount", "Difference"]
     rows_t = []
     for tax_type in ["igst", "cgst", "sgst", "cess"]:
-        tr = tax_recon.get(tax_type, {})
-        if isinstance(tr, dict):
-            rows_t.append([
-                tax_type.upper(),
-                tr.get("gstr1", tr.get("gstr1_amount", 0)),
-                tr.get("gstr3b", tr.get("gstr3b_amount", 0)),
-                tr.get("difference", tr.get("gap", 0)),
-            ])
-    # Add total row if available
-    total = tax_recon.get("total", {})
-    if isinstance(total, dict):
         rows_t.append([
-            "TOTAL",
-            total.get("gstr1", total.get("gstr1_amount", 0)),
-            total.get("gstr3b", total.get("gstr3b_amount", 0)),
-            total.get("difference", total.get("gap", 0)),
+            tax_type.upper(),
+            tax_recon.get(f"gstr1_{tax_type}", 0),
+            tax_recon.get(f"gstr3b_{tax_type}", 0),
+            tax_recon.get(f"{tax_type}_diff", 0),
         ])
+    # Total row
+    rows_t.append([
+        "TOTAL",
+        tax_recon.get("gstr1_total_tax", 0),
+        tax_recon.get("gstr3b_total_tax", 0),
+        tax_recon.get("total_tax_gap", 0),
+    ])
     tables["Tax Reconciliation"] = (headers_t, rows_t)
 
     # ITC Summary
@@ -553,10 +549,10 @@ def _generate_gstr9_pdf(recon: GSTR9Reconciliation) -> BytesIO:
     stats = [
         f"GSTR-1 Total Turnover: Rs. {summary.get('gstr1_total_turnover', 0):,.2f}",
         f"GSTR-3B Total Turnover: Rs. {summary.get('gstr3b_total_turnover', 0):,.2f}",
-        f"Turnover Difference: Rs. {summary.get('turnover_difference', 0):,.2f}",
+        f"Turnover Difference: Rs. {summary.get('turnover_diff', 0):,.2f}",
         f"GSTR-1 Total Tax: Rs. {summary.get('gstr1_total_tax', 0):,.2f}",
         f"GSTR-3B Total Tax: Rs. {summary.get('gstr3b_total_tax', 0):,.2f}",
-        f"Tax Difference: Rs. {summary.get('tax_difference', 0):,.2f}",
+        f"Tax Difference: Rs. {summary.get('tax_diff', 0):,.2f}",
         f"Discrepancies: {summary.get('discrepancy_count', 0)}",
         f"Months Analyzed: {summary.get('months_analyzed', 0)}",
         f"Status: {summary.get('status', 'N/A')}",
@@ -593,30 +589,39 @@ def _generate_gstr9_pdf(recon: GSTR9Reconciliation) -> BytesIO:
             pdf.cell(col_w[0], 4, _sanitize_text(month), border=1)
             pdf.cell(col_w[1], 4, f"{m.get('gstr1_turnover', 0):,.0f}", border=1)
             pdf.cell(col_w[2], 4, f"{m.get('gstr3b_turnover', 0):,.0f}", border=1)
-            pdf.cell(col_w[3], 4, f"{m.get('turnover_difference', 0):,.0f}", border=1)
+            pdf.cell(col_w[3], 4, f"{m.get('turnover_diff', 0):,.0f}", border=1)
             pdf.cell(col_w[4], 4, f"{m.get('gstr1_tax', 0):,.0f}", border=1)
             pdf.cell(col_w[5], 4, f"{m.get('gstr3b_tax', 0):,.0f}", border=1)
-            pdf.cell(col_w[6], 4, f"{m.get('tax_difference', 0):,.0f}", border=1)
+            pdf.cell(col_w[6], 4, f"{m.get('tax_diff', 0):,.0f}", border=1)
             pdf.set_text_color(*color)
             pdf.cell(col_w[7], 4, _sanitize_text(sev.upper()), border=1)
             pdf.set_text_color(0, 0, 0)
             pdf.ln()
         pdf.ln(5)
 
-    # Tax Reconciliation
+    # Tax Reconciliation (flat-key structure)
     if tax_recon:
         pdf.set_font("Helvetica", "B", 13)
         pdf.cell(0, 9, "Tax Reconciliation", ln=True)
         pdf.set_font("Helvetica", "", 10)
         for tax_type in ["igst", "cgst", "sgst", "cess"]:
-            tr = tax_recon.get(tax_type, {})
-            if isinstance(tr, dict):
-                gstr1_val = tr.get("gstr1", tr.get("gstr1_amount", 0))
-                gstr3b_val = tr.get("gstr3b", tr.get("gstr3b_amount", 0))
-                diff = tr.get("difference", tr.get("gap", 0))
-                pdf.cell(0, 6, _sanitize_text(
-                    f"{tax_type.upper()}: GSTR-1 Rs. {gstr1_val:,.2f} | GSTR-3B Rs. {gstr3b_val:,.2f} | Diff Rs. {diff:,.2f}"
-                ), ln=True)
+            gstr1_val = tax_recon.get(f"gstr1_{tax_type}", 0)
+            gstr3b_val = tax_recon.get(f"gstr3b_{tax_type}", 0)
+            diff = tax_recon.get(f"{tax_type}_diff", 0)
+            pdf.cell(0, 6, _sanitize_text(
+                f"{tax_type.upper()}: GSTR-1 Rs. {gstr1_val:,.2f} | GSTR-3B Rs. {gstr3b_val:,.2f} | Diff Rs. {diff:,.2f}"
+            ), ln=True)
+        # Total row
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, _sanitize_text(
+            f"TOTAL: GSTR-1 Rs. {tax_recon.get('gstr1_total_tax', 0):,.2f} | "
+            f"GSTR-3B Rs. {tax_recon.get('gstr3b_total_tax', 0):,.2f} | "
+            f"Gap Rs. {tax_recon.get('total_tax_gap', 0):,.2f}"
+        ), ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        gap_text = tax_recon.get("gap_interpretation", "")
+        if gap_text:
+            pdf.cell(0, 6, _sanitize_text(f"Interpretation: {gap_text}"), ln=True)
         pdf.ln(5)
 
     # ITC Summary
