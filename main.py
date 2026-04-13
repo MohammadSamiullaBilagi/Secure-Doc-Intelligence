@@ -64,6 +64,7 @@ logger = logging.getLogger(__name__)
 from api.routes import auth, documents, chat, audits, billing, payments, blueprints, reports, status, clients, calendar, notices
 from api.routes import gst_reconciliation, bank_analysis, capital_gains, gstr9_recon, depreciation, advance_tax, feedback
 from api.routes import admin
+from api.routes import legal, account, audit_logs, tools
 from services.scheduler import start_background_tasks
 
 app = FastAPI(
@@ -139,6 +140,10 @@ app.include_router(depreciation.router)
 app.include_router(advance_tax.router)
 app.include_router(feedback.router)
 app.include_router(admin.router)
+app.include_router(legal.router)
+app.include_router(account.router)
+app.include_router(audit_logs.router)
+app.include_router(tools.router)
 
 
 @app.on_event("startup")
@@ -159,6 +164,7 @@ async def startup_event():
     from db.models import notices as notices_models  # noqa: F401
     from db.models import feedback as feedback_models  # noqa: F401
     from db.models import password_reset as password_reset_models  # noqa: F401
+    from db.models import audit_log as audit_log_models  # noqa: F401
 
     # Auto-create tables only for local SQLite dev; PostgreSQL uses Alembic migrations
     if settings.is_sqlite:

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 import logging
 
@@ -20,6 +20,8 @@ from schemas.user import (
 )
 from services.auth_service import get_password_hash, verify_password, create_access_token
 from services.credits_service import PLAN_CREDITS
+from services.audit_log_service import log_audit_event, extract_request_meta
+from services.legal_content import CURRENT_CONSENT_VERSION
 from api.dependencies import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 class GoogleAuthRequest(BaseModel):
     credential: str  # The ID token from Google Identity Services
+    consent: bool = True  # DPDPA consent — required for new users
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -37,17 +40,29 @@ async def register_user(request: Request, user_in: UserCreate, db: Annotated[Asy
     """Registers a new User and seeds their default notification preferences."""
     import traceback
     try:
+        # 0. Validate DPDPA consent
+        if not user_in.consent:
+            raise HTTPException(
+                status_code=400,
+                detail="You must accept the Privacy Policy and Terms of Service to register (consent=true required).",
+            )
+
         # 1. Check if email already exists
         query = select(User).where(User.email == user_in.email)
         result = await db.execute(query)
         existing_user = result.scalar_one_or_none()
-        
+
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
-            
+
         # 2. Hash password and save new User
         hashed_pwd = get_password_hash(user_in.password)
-        new_user = User(email=user_in.email, hashed_password=hashed_pwd)
+        new_user = User(
+            email=user_in.email,
+            hashed_password=hashed_pwd,
+            consent_accepted_at=datetime.now(timezone.utc),
+            consent_version=CURRENT_CONSENT_VERSION,
+        )
         
         db.add(new_user)
         await db.flush() # flush to generate the new_user.id UUID
@@ -131,7 +146,12 @@ async def login_for_access_token(
     access_token = create_access_token(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
-    
+
+    # 3. Audit log
+    ip, ua = extract_request_meta(request)
+    await log_audit_event(db, user.id, "login", ip_address=ip, user_agent=ua)
+    await db.commit()
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -174,6 +194,10 @@ async def json_login(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
 
+    ip, ua = extract_request_meta(request)
+    await log_audit_event(db, user.id, "login", ip_address=ip, user_agent=ua)
+    await db.commit()
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -213,8 +237,19 @@ async def google_sign_in(
     user = result.scalar_one_or_none()
     
     if not user:
+        # DPDPA: require consent for new users
+        if not body.consent:
+            raise HTTPException(
+                status_code=400,
+                detail="You must accept the Privacy Policy and Terms of Service to register (consent=true required).",
+            )
         # First-time Google sign-in — create account (no password)
-        user = User(email=email, hashed_password=None)
+        user = User(
+            email=email,
+            hashed_password=None,
+            consent_accepted_at=datetime.now(timezone.utc),
+            consent_version=CURRENT_CONSENT_VERSION,
+        )
         db.add(user)
         await db.flush()
         
@@ -254,7 +289,11 @@ async def google_sign_in(
     access_token = create_access_token(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
-    
+
+    ip, ua = extract_request_meta(request)
+    await log_audit_event(db, user.id, "login", ip_address=ip, user_agent=ua, details={"method": "google"})
+    await db.commit()
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -268,6 +307,9 @@ async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]
         "is_active": current_user.is_active,
         "is_admin": current_user.is_admin,
         "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "consent_accepted_at": current_user.consent_accepted_at.isoformat() if current_user.consent_accepted_at else None,
+        "consent_version": current_user.consent_version,
+        "data_deleted_at": current_user.data_deleted_at.isoformat() if current_user.data_deleted_at else None,
     }
 
 
@@ -308,6 +350,7 @@ async def get_preferences(
 
 @router.put("/preferences")
 async def update_preferences(
+    req: Request,
     request: UpdatePreferencesRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -331,6 +374,8 @@ async def update_preferences(
     for field, value in update_data.items():
         setattr(prefs, field, value)
 
+    ip, ua = extract_request_meta(req)
+    await log_audit_event(db, current_user.id, "profile_update", ip_address=ip, user_agent=ua)
     await db.commit()
     await db.refresh(prefs)
 
@@ -352,6 +397,7 @@ async def update_preferences(
 
 @router.post("/change-password")
 async def change_password(
+    req: Request,
     request: ChangePasswordRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -364,6 +410,8 @@ async def change_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     current_user.hashed_password = get_password_hash(request.new_password)
+    ip, ua = extract_request_meta(req)
+    await log_audit_event(db, current_user.id, "password_change", ip_address=ip, user_agent=ua)
     await db.commit()
     logger.info(f"Password changed for user {current_user.email}")
     return {"message": "Password changed successfully"}

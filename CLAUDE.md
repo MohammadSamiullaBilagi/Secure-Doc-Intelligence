@@ -115,6 +115,10 @@ Blueprint access check: `GET /api/v1/blueprints/access` → `{has_access, reason
 | /api/v1/depreciation | routes/depreciation.py | All (credit-gated) |
 | /api/v1/advance-tax | routes/advance_tax.py | All (credit-gated) |
 | /api/v1/feedback | routes/feedback.py | All |
+| /api/v1/legal | routes/legal.py | Public (privacy-policy, terms, ai-disclosure) / Auth (consent) |
+| /api/v1/account | routes/account.py | Auth (data deletion, data export) |
+| /api/v1/audit-logs | routes/audit_logs.py | Admin (all logs) / Auth (own logs) |
+| /api/v1/tools | routes/tools.py | Public (redactor download, info) |
 
 ### CSV/Excel Export Endpoints (all analysis features)
 Each analysis feature has `GET /{id}/csv?sheet={name}` (per-table CSV) and `GET /{id}/excel` (multi-sheet XLSX).
@@ -126,7 +130,7 @@ Uses `services/tabular_export_service.py` — `TabularExportService.to_csv()` / 
 
 - **Dev**: `micro_saas.db` (SQLite + aiosqlite)
 - **Production**: Cloud SQL PostgreSQL (asyncpg) — set `DATABASE_URL` in `.env`
-- **Models**: `db/models/core.py`, `billing.py`, `clients.py`, `calendar.py`, `notices.py`, `references.py`, `feedback.py`, `chat.py`
+- **Models**: `db/models/core.py`, `billing.py`, `clients.py`, `calendar.py`, `notices.py`, `references.py`, `feedback.py`, `chat.py`, `audit_log.py`
 - **Migrations**: Alembic in `alembic/` — always import new model modules in `alembic/env.py`
 - **Storage**: Local filesystem or S3/GCS via `services/storage.py` (`STORAGE_BACKEND=s3`)
 
@@ -214,6 +218,14 @@ See plan file or `scripts/migrate_sqlite_to_postgres.py` for SQLite → PostgreS
 - **Webhooks**: `webhook_service.py` sends both `body_html` (markdown→HTML) and `body_plain` (stripped)
 - Helper `_strip_markdown()` handles: headers, bold/italic, strikethrough, inline code, links, images, horizontal rules, blockquotes, list markers
 
+### DPDPA Compliance (Phase 10)
+- **Consent**: Required on registration (email + Google). Fields on User: `consent_accepted_at`, `consent_version`, `data_deleted_at`. Current version: `v1.0`.
+- **Right to Erasure**: `DELETE /api/v1/account/data` — deletes all docs, ChromaDB, analysis records, chat, clients, notices, blueprints. KEEPS: User account, Subscription, CreditTransactions, AuditLogs.
+- **Privacy Policy / ToS**: `GET /api/v1/legal/privacy-policy`, `/terms` — structured JSON, no auth required.
+- **Audit Logs**: `AuditLog` model in `db/models/audit_log.py`. Events: login, document_upload, audit_run, notice_upload, data_export, data_delete, profile_update, consent_update, password_change. Admin view: `GET /api/v1/audit-logs`. User view: `GET /api/v1/audit-logs/me`.
+- **AI Disclosure**: Upload response includes `ai_processing_disclosure` field. Dedicated endpoint: `GET /api/v1/legal/ai-disclosure`.
+- **PDF Redaction Tool**: Standalone PyQt6+PyMuPDF desktop app in `tools/pdf_redactor/`. Uses `page.apply_redactions()` for permanent text removal. Download via `GET /api/v1/tools/redactor/download`. Guide: redact PAN/Aadhaar/names, do NOT redact GSTIN/dates/amounts.
+
 ---
 
 ## Known P0 Bugs (see memory/known_issues.md for all)
@@ -241,3 +253,6 @@ See plan file or `scripts/migrate_sqlite_to_postgres.py` for SQLite → PostgreS
 | Reranker | services/reranker.py | Rerank retrieved chunks by relevance (Gemini Flash) |
 | QueryExpander | services/query_expander.py | Generate targeted retrieval queries per compliance check |
 | RateLimit | api/rate_limit.py | slowapi rate limiting (auth: 10/min) |
+| AuditLogService | services/audit_log_service.py | DPDPA audit trail: log_audit_event(), extract_request_meta() |
+| DataDeletionService | services/data_deletion_service.py | Right to Erasure: delete_user_data() — all user data except billing/audit logs |
+| LegalContent | services/legal_content.py | Privacy Policy, ToS, AI disclosure (static JSON content) |

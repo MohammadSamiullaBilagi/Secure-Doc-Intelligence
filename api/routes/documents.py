@@ -18,6 +18,8 @@ from db.models.clients import Client, ClientDocument
 from ingestion import DocumentProcessor
 from services.watcher_service import WatcherService
 from services.credits_service import CreditsService
+from services.audit_log_service import log_audit_event, extract_request_meta
+from services.legal_content import get_ai_processing_disclosure
 from api.rate_limit import limiter
 from config import settings
 
@@ -191,12 +193,24 @@ async def upload_document(
             thread_id=file_thread_ids[filename],
         )
 
+    # Audit log for document uploads
+    ip, ua = extract_request_meta(request)
+    for filename in processed_files:
+        await log_audit_event(
+            db, current_user.id, "document_upload",
+            resource_type="document", resource_id=filename,
+            ip_address=ip, user_agent=ua,
+        )
+    await db.commit()
+
+    disclosure = get_ai_processing_disclosure()
     return {
         "message": f"Successfully ingested {len(processed_files)} documents.",
         "documents": processed_files,
         "thread_ids": [file_thread_ids[fn] for fn in processed_files],
         "client_id": str(linked_client.id) if linked_client else None,
-        "status": "Processing in background"
+        "status": "Processing in background",
+        "ai_processing_disclosure": disclosure["short"],
     }
 
 

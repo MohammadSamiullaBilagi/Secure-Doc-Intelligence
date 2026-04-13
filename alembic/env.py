@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
 from db.config import settings
 from db.models.core import Base
-from db.models import billing, clients, calendar, notices, references, feedback, password_reset, chat  # noqa: F401 — ensure autogenerate detects all tables
+from db.models import billing, clients, calendar, notices, references, feedback, password_reset, chat, audit_log  # noqa: F401 — ensure autogenerate detects all tables
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

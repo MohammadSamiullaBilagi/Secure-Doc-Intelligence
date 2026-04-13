@@ -2,7 +2,7 @@ import uuid
 from typing import Optional, List
 from datetime import datetime, date
 
-from sqlalchemy import String, Boolean, ForeignKey, JSON, Uuid, Date, Float, Integer
+from sqlalchemy import String, Boolean, ForeignKey, JSON, Uuid, Date, Float, Integer, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.database import Base, TimestampMixin
@@ -19,6 +19,11 @@ class User(Base, TimestampMixin):
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+    # DPDPA compliance fields
+    consent_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    consent_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    data_deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     preferences: Mapped["UserPreference"] = relationship(

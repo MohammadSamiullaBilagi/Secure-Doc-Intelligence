@@ -18,6 +18,7 @@ from db.models.clients import Client
 from db.models.billing import CreditActionType
 from services.credits_service import CreditsService
 from services.notice_service import NoticeService
+from services.audit_log_service import log_audit_event, extract_request_meta
 from services.report_service import ReportService
 from services.email_service import EmailService
 from services.storage import get_storage
@@ -170,6 +171,16 @@ async def upload_notice(
         str(data_dir),
         thread_id,
     )
+
+    # Audit log
+    ip, ua = extract_request_meta(request)
+    await log_audit_event(
+        db, current_user.id, "notice_upload",
+        resource_type="notice_job", resource_id=str(job_id),
+        ip_address=ip, user_agent=ua,
+        details={"notice_type": notice_type},
+    )
+    await db.commit()
 
     return NoticeUploadResponse(
         notice_job_id=str(job_id),

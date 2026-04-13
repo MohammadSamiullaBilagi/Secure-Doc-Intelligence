@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = Field(default="")
     S3_ENDPOINT_URL: str = Field(default="")  # e.g. https://storage.googleapis.com for GCS
 
+    # --- DPDPA / Legal ---
+    CONSENT_VERSION: str = Field(default="v1.0")
+    GRIEVANCE_OFFICER_NAME: str = Field(default="")
+    GRIEVANCE_OFFICER_EMAIL: str = Field(default="")
+    REDACTOR_EXE_PATH: str = Field(default="static/tools/pdf_redactor.exe")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # --- Derived properties ---

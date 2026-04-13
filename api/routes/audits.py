@@ -1,6 +1,6 @@
 import logging
 from typing import Annotated, List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -13,6 +13,7 @@ from db.models.core import User, AuditJob, UserPreference
 from db.models.clients import Client
 from multi_agent import ComplianceOrchestrator
 from services.approval_service import ApprovalService
+from services.audit_log_service import log_audit_event, extract_request_meta
 from services.email_service import EmailService
 from api.routes.documents import get_session_paths
 
@@ -122,11 +123,18 @@ async def clear_pending_audits(
 @router.post("/{thread_id}/approve")
 async def approve_audit_task(
     thread_id: str,
+    req: Request,
     request: ApprovalRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db)
 ):
     """Approves an AI-drafted remediation and dispatches the webhook."""
+    ip, ua = extract_request_meta(req)
+    await log_audit_event(
+        db, current_user.id, "audit_run",
+        resource_type="audit_job", resource_id=thread_id,
+        ip_address=ip, user_agent=ua,
+    )
     _, db_dir = get_session_paths(str(current_user.id))
     
     # 1. Verify ownership of the DB job (use first() to handle duplicate uploads)

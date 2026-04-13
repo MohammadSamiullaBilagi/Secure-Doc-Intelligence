@@ -7,6 +7,7 @@ class UserCreate(BaseModel):
     """Payload for registering a new user."""
     email: EmailStr
     password: str
+    consent: bool = False
 
 class UserResponse(BaseModel):
     """Payload for returning user data (never includes password)."""
@@ -14,7 +15,10 @@ class UserResponse(BaseModel):
     email: EmailStr
     is_active: bool
     created_at: datetime
-    
+    consent_accepted_at: Optional[datetime] = None
+    consent_version: Optional[str] = None
+    data_deleted_at: Optional[datetime] = None
+
     class Config:
         from_attributes = True
 
