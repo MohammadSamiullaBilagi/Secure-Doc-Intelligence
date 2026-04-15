@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     GRIEVANCE_OFFICER_NAME: str = Field(default="")
     GRIEVANCE_OFFICER_EMAIL: str = Field(default="")
     REDACTOR_EXE_PATH: str = Field(default="static/tools/pdf_redactor.exe")
+    REDACTOR_PUBLIC_URL: str = Field(default="")  # GCS-hosted .exe URL; if set, /tools/redactor/download 302-redirects here
+    REDACTOR_VERSION: str = Field(default="1.0.0")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
