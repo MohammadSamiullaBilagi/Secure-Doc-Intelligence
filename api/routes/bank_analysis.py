@@ -135,6 +135,10 @@ async def upload_bank_statement(
         total_credit=summary["total_credit"],
         flags_count=summary["flags_count"],
         high_flags=summary["high_flags"],
+        categorized_totals=result_data.get("categorized_totals"),
+        monthly_summary=result_data.get("monthly_summary"),
+        counterparty_summary=result_data.get("counterparty_summary"),
+        compliance_score=result_data.get("compliance_score"),
     )
     db.add(analysis)
     await db.commit()
@@ -147,6 +151,10 @@ async def upload_bank_statement(
         "high_flags": summary["high_flags"],
         "medium_flags": summary["medium_flags"],
         "low_flags": summary["low_flags"],
+        "compliance_score": result_data.get("compliance_score"),
+        "monthly_summary": result_data.get("monthly_summary"),
+        "categorized_totals": result_data.get("categorized_totals"),
+        "counterparty_summary": result_data.get("counterparty_summary"),
     }
 
 
@@ -293,6 +301,10 @@ async def get_bank_analysis(
         "total_credit": analysis.total_credit,
         "flags_count": analysis.flags_count,
         "high_flags": analysis.high_flags,
+        "compliance_score": analysis.compliance_score,
+        "monthly_summary": analysis.monthly_summary,
+        "categorized_totals": analysis.categorized_totals,
+        "counterparty_summary": analysis.counterparty_summary,
         "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
         "result": analysis.result_json,
     }
@@ -340,10 +352,14 @@ def _generate_bank_analysis_pdf(analysis: BankStatementAnalysis) -> BytesIO:
     from fpdf import FPDF
     from services.report_service import _sanitize_text
 
-    result = analysis.result_json
+    result = analysis.result_json or {}
     summary = result.get("summary", {})
     flags = result.get("flags", [])
     transactions = result.get("transactions", [])
+    monthly_summary = result.get("monthly_summary") or {}
+    categorized_totals = result.get("categorized_totals") or {}
+    counterparty_summary = result.get("counterparty_summary") or []
+    compliance_score = result.get("compliance_score", 0) or 0
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=20)
@@ -366,6 +382,26 @@ def _generate_bank_analysis_pdf(analysis: BankStatementAnalysis) -> BytesIO:
     pdf.cell(0, 6, _sanitize_text(f"File: {analysis.filename}"), ln=True, align="C")
     pdf.ln(5)
 
+    # Compliance Score (banner)
+    if compliance_score >= 80:
+        score_color = (40, 160, 60)
+        score_label = "Healthy"
+    elif compliance_score >= 60:
+        score_color = (220, 160, 0)
+        score_label = "Needs Review"
+    else:
+        score_color = (220, 50, 50)
+        score_label = "High Risk"
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_fill_color(*score_color)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 10, _sanitize_text(
+        f"  Compliance Score: {compliance_score} / 100  -  {score_label}"
+    ), ln=True, fill=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
     # Summary stats
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 9, "Summary", ln=True)
@@ -384,6 +420,97 @@ def _generate_bank_analysis_pdf(analysis: BankStatementAnalysis) -> BytesIO:
     for s in stats:
         pdf.cell(0, 6, _sanitize_text(s), ln=True)
     pdf.ln(5)
+
+    # --- Statutory Compliance Checklist ---
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 9, "Statutory Compliance Checklist", ln=True)
+    pdf.set_font("Helvetica", "", 9)
+
+    flag_categories = {f.get("category", "") for f in flags}
+    checklist_rules = [
+        ("Sec 40A(3) - Cash expense > 10K", {"SEC_40A3_RISK", "SEC_40A3_AGGREGATE"}),
+        ("Sec 269ST - Cash receipt >= 2L", {"SEC_269ST_VIOLATION", "SEC_269ST_WARNING"}),
+        ("SFT Rule 114E - FY cash >= 10L", {"SFT_CASH_WITHDRAWAL", "SFT_CASH_DEPOSIT", "SFT_CASH_WITHDRAWAL_WARNING", "SFT_CASH_DEPOSIT_WARNING"}),
+        ("Sec 194A - Interest TDS (40K)", {"INTEREST_194A_THRESHOLD", "TDS_NOT_DEDUCTED_HINT"}),
+        ("AML - Structuring (<10K repeat)", {"STRUCTURING_SUSPECTED"}),
+        ("Round-trip / related party", {"ROUND_TRIP_SUSPECTED"}),
+        ("GST cross-reference", {"GST_REMITTANCE_VISIBLE"}),
+        ("Advance Tax / Schedule IT", {"ADVANCE_TAX_PAID"}),
+    ]
+    for label, categories in checklist_rules:
+        hit = bool(flag_categories & categories)
+        mark = "[!] REVIEW" if hit else "[OK] Clean"
+        color = (220, 120, 0) if hit else (40, 140, 40)
+        pdf.set_text_color(*color)
+        pdf.cell(60, 5, _sanitize_text(mark), border=0)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 5, _sanitize_text(label), ln=True)
+    pdf.ln(3)
+
+    # --- Monthly Trend ---
+    if monthly_summary:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "Monthly Trend", ln=True)
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(240, 240, 240)
+        m_cols = [24, 30, 30, 30, 18, 38]
+        m_headers = ["Month", "Debit", "Credit", "Net", "Count", "Top Category"]
+        for i, h in enumerate(m_headers):
+            pdf.cell(m_cols[i], 5, h, border=1, fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 8)
+        for month, data in sorted(monthly_summary.items()):
+            pdf.cell(m_cols[0], 5, _sanitize_text(month), border=1)
+            pdf.cell(m_cols[1], 5, _sanitize_text(f"{data.get('debit', 0):,.0f}"), border=1)
+            pdf.cell(m_cols[2], 5, _sanitize_text(f"{data.get('credit', 0):,.0f}"), border=1)
+            pdf.cell(m_cols[3], 5, _sanitize_text(f"{data.get('net', 0):,.0f}"), border=1)
+            pdf.cell(m_cols[4], 5, _sanitize_text(str(data.get('count', 0))), border=1)
+            pdf.cell(m_cols[5], 5, _sanitize_text(str(data.get('top_category', ''))[:18]), border=1)
+            pdf.ln()
+        pdf.ln(3)
+
+    # --- Categorization Breakdown (top 10) ---
+    if categorized_totals:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "Categorization Breakdown", ln=True)
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(240, 240, 240)
+        c_cols = [50, 32, 32, 18, 22, 22]
+        c_headers = ["Category", "Debit", "Credit", "Count", "% Debit", "% Credit"]
+        for i, h in enumerate(c_headers):
+            pdf.cell(c_cols[i], 5, h, border=1, fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 8)
+        for cat, data in list(categorized_totals.items())[:12]:
+            pdf.cell(c_cols[0], 5, _sanitize_text(cat[:28]), border=1)
+            pdf.cell(c_cols[1], 5, _sanitize_text(f"{data.get('debit', 0):,.0f}"), border=1)
+            pdf.cell(c_cols[2], 5, _sanitize_text(f"{data.get('credit', 0):,.0f}"), border=1)
+            pdf.cell(c_cols[3], 5, _sanitize_text(str(data.get('count', 0))), border=1)
+            pdf.cell(c_cols[4], 5, _sanitize_text(f"{data.get('pct_debit', 0):.1f}%"), border=1)
+            pdf.cell(c_cols[5], 5, _sanitize_text(f"{data.get('pct_credit', 0):.1f}%"), border=1)
+            pdf.ln()
+        pdf.ln(3)
+
+    # --- Top Counterparties ---
+    if counterparty_summary:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "Top Counterparties", ln=True)
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(240, 240, 240)
+        cp_cols = [70, 20, 32, 32, 18]
+        cp_headers = ["Name", "Type", "Total Debit", "Total Credit", "Count"]
+        for i, h in enumerate(cp_headers):
+            pdf.cell(cp_cols[i], 5, h, border=1, fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 8)
+        for cp in counterparty_summary[:15]:
+            pdf.cell(cp_cols[0], 5, _sanitize_text(str(cp.get('name', ''))[:40]), border=1)
+            pdf.cell(cp_cols[1], 5, _sanitize_text(str(cp.get('type', ''))[:8]), border=1)
+            pdf.cell(cp_cols[2], 5, _sanitize_text(f"{cp.get('total_debit', 0):,.0f}"), border=1)
+            pdf.cell(cp_cols[3], 5, _sanitize_text(f"{cp.get('total_credit', 0):,.0f}"), border=1)
+            pdf.cell(cp_cols[4], 5, _sanitize_text(str(cp.get('count', 0))), border=1)
+            pdf.ln()
+        pdf.ln(3)
 
     # Flags table
     if flags:
@@ -512,13 +639,42 @@ def _extract_bank_tables(result_json: dict) -> dict:
     ] for f in flags]
     tables["Flags"] = (headers_f, rows_f)
 
-    # Transactions
+    # Transactions — now includes enriched category and counterparty
     txns = result_json.get("transactions", [])
-    headers_t = ["Date", "Description", "Debit", "Credit", "Balance", "Mode"]
+    headers_t = ["Date", "Description", "Debit", "Credit", "Balance", "Mode", "Category", "Counterparty"]
     rows_t = [[
         t.get("date", ""), t.get("description", ""),
         t.get("debit", 0), t.get("credit", 0), t.get("balance", 0), t.get("mode", ""),
+        t.get("category", ""),
+        (t.get("counterparty") or {}).get("name", ""),
     ] for t in txns]
     tables["Transactions"] = (headers_t, rows_t)
+
+    # Monthly Summary
+    monthly = result_json.get("monthly_summary") or {}
+    headers_m = ["Month", "Debit", "Credit", "Net", "Count", "Top Category"]
+    rows_m = [[
+        month, data.get("debit", 0), data.get("credit", 0),
+        data.get("net", 0), data.get("count", 0), data.get("top_category", ""),
+    ] for month, data in sorted(monthly.items())]
+    tables["Monthly Summary"] = (headers_m, rows_m)
+
+    # Categorized Totals
+    categorized = result_json.get("categorized_totals") or {}
+    headers_c = ["Category", "Debit", "Credit", "Count", "% of Debit", "% of Credit"]
+    rows_c = [[
+        cat, data.get("debit", 0), data.get("credit", 0), data.get("count", 0),
+        data.get("pct_debit", 0), data.get("pct_credit", 0),
+    ] for cat, data in categorized.items()]
+    tables["Categorization"] = (headers_c, rows_c)
+
+    # Counterparty Summary
+    counterparties = result_json.get("counterparty_summary") or []
+    headers_cp = ["Counterparty", "Type", "Total Debit", "Total Credit", "Count"]
+    rows_cp = [[
+        cp.get("name", ""), cp.get("type", ""),
+        cp.get("total_debit", 0), cp.get("total_credit", 0), cp.get("count", 0),
+    ] for cp in counterparties]
+    tables["Counterparties"] = (headers_cp, rows_cp)
 
     return tables

@@ -186,6 +186,11 @@ class BankStatementAnalysis(Base, TimestampMixin):
     flags_count: Mapped[int] = mapped_column(Integer, default=0)
     high_flags: Mapped[int] = mapped_column(Integer, default=0)
 
+    categorized_totals: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    monthly_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    counterparty_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    compliance_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     # Relationships
     user: Mapped["User"] = relationship("User")
     client: Mapped[Optional["Client"]] = relationship("Client")

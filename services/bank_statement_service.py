@@ -1,9 +1,32 @@
-"""Bank Statement Analyzer — extract transactions from text, flag against statutory thresholds."""
+"""Bank Statement Analyzer — extract transactions from text, flag against statutory thresholds.
+
+The pipeline has two layers:
+
+1. **Deterministic extraction + threshold flags** (this file) — parses the raw
+   text of a bank statement into transaction rows and runs the 11 deterministic
+   statutory checks (§40A(3), §269ST, SFT, §194A).
+
+2. **Enrichment** (`services.bank_enrichment.*`) — layers categorization,
+   counterparty extraction, monthly/trend summaries, and higher-order detectors
+   (structuring, round-trip, TDS hints, non-working-day high-value) on top of
+   the raw transactions to produce CA-ready output.
+
+The caller (`api/routes/bank_analysis.py`) receives a single result dict
+containing `summary`, `flags`, `transactions`, `monthly_summary`,
+`categorized_totals`, `counterparty_summary`, and `compliance_score`.
+"""
 
 import json
 import logging
 import re
+from collections import defaultdict
 from datetime import date, datetime
+
+from services.bank_enrichment import (
+    categorize,
+    extract_counterparty,
+    run_detectors,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -318,10 +341,25 @@ class BankStatementService:
         }
 
     def analyze(self, transactions: list[dict], fy_start: date, fy_end: date) -> dict:
-        """Run deterministic statutory threshold checks on extracted transactions.
+        """Run deterministic statutory threshold checks + enrichment on extracted transactions.
 
-        Pure Python arithmetic — no LLM, no compliance judgments.
+        Pure Python arithmetic and rules — the LLM is only used by
+        `extract_transactions()` for fallback parsing. The returned dict
+        includes raw transactions annotated with `category`, `category_confidence`,
+        and `counterparty`, plus aggregated `monthly_summary`, `counterparty_summary`,
+        `categorized_totals`, and a 0–100 `compliance_score`.
         """
+        # Enrich each transaction in-place with category + counterparty
+        for txn in transactions:
+            debit = _parse_float(txn.get("debit"))
+            credit = _parse_float(txn.get("credit"))
+            desc = txn.get("description") or ""
+            is_credit = credit > 0
+            category, confidence = categorize(desc, max(debit, credit), is_credit)
+            txn["category"] = category
+            txn["category_confidence"] = confidence
+            txn["counterparty"] = extract_counterparty(desc)
+
         flags: list[dict] = []
         total_debit = 0.0
         total_credit = 0.0
@@ -491,9 +529,31 @@ class BankStatementService:
                 "transaction": "Aggregate interest income",
             })
 
+        # --- Enrichment aggregates ---
+        monthly_summary = self._build_monthly_summary(transactions)
+        categorized_totals = self._build_categorized_totals(transactions, total_debit, total_credit)
+        counterparty_summary = self._build_counterparty_summary(transactions)
+
+        # Run higher-order detectors (structuring, round-trip, etc.)
+        enrichment_flags = run_detectors(
+            transactions,
+            monthly_summary,
+            interest_total,
+            total_debit,
+        )
+        flags.extend(enrichment_flags)
+
         # Sort flags: HIGH first, then MEDIUM, then LOW
         severity_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
         flags.sort(key=lambda f: severity_order.get(f["severity"], 9))
+
+        high_flags = sum(1 for f in flags if f["severity"] == "HIGH")
+        medium_flags = sum(1 for f in flags if f["severity"] == "MEDIUM")
+        low_flags = sum(1 for f in flags if f["severity"] == "LOW")
+
+        # Compliance score: 100 minus weighted penalty, clamped [0, 100]
+        raw_score = 100 - (high_flags * 10 + medium_flags * 4 + low_flags * 1)
+        compliance_score = max(0, min(100, raw_score))
 
         summary = {
             "total_transactions": txn_count,
@@ -504,13 +564,132 @@ class BankStatementService:
             "interest_total": round(interest_total, 2),
             "fy_period": f"{fy_start.isoformat()} to {fy_end.isoformat()}",
             "flags_count": len(flags),
-            "high_flags": sum(1 for f in flags if f["severity"] == "HIGH"),
-            "medium_flags": sum(1 for f in flags if f["severity"] == "MEDIUM"),
-            "low_flags": sum(1 for f in flags if f["severity"] == "LOW"),
+            "high_flags": high_flags,
+            "medium_flags": medium_flags,
+            "low_flags": low_flags,
+            "compliance_score": compliance_score,
         }
 
         return {
             "summary": summary,
             "flags": flags,
             "transactions": transactions,
+            "monthly_summary": monthly_summary,
+            "categorized_totals": categorized_totals,
+            "counterparty_summary": counterparty_summary,
+            "compliance_score": compliance_score,
         }
+
+    # ------------------------------------------------------------------
+    # Enrichment aggregates
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_monthly_summary(transactions: list[dict]) -> dict:
+        """Aggregate transactions by YYYY-MM with debit/credit/net/count/top_category."""
+        months: dict[str, dict] = defaultdict(lambda: {
+            "debit": 0.0,
+            "credit": 0.0,
+            "net": 0.0,
+            "count": 0,
+            "_category_debit": defaultdict(float),
+        })
+        for txn in transactions:
+            dt = _parse_date(txn.get("date"))
+            if not dt:
+                continue
+            key = f"{dt.year:04d}-{dt.month:02d}"
+            bucket = months[key]
+            debit = _parse_float(txn.get("debit"))
+            credit = _parse_float(txn.get("credit"))
+            bucket["debit"] += debit
+            bucket["credit"] += credit
+            bucket["count"] += 1
+            if debit > 0:
+                bucket["_category_debit"][txn.get("category") or "OTHER"] += debit
+
+        out: dict[str, dict] = {}
+        for key, bucket in months.items():
+            top_category = ""
+            if bucket["_category_debit"]:
+                top_category = max(
+                    bucket["_category_debit"].items(),
+                    key=lambda kv: kv[1],
+                )[0]
+            out[key] = {
+                "debit": round(bucket["debit"], 2),
+                "credit": round(bucket["credit"], 2),
+                "net": round(bucket["credit"] - bucket["debit"], 2),
+                "count": bucket["count"],
+                "top_category": top_category,
+            }
+        return dict(sorted(out.items()))
+
+    @staticmethod
+    def _build_categorized_totals(
+        transactions: list[dict],
+        total_debit: float,
+        total_credit: float,
+    ) -> dict:
+        """Per-category debit/credit/count/pct (of total debit)."""
+        buckets: dict[str, dict] = defaultdict(lambda: {
+            "debit": 0.0,
+            "credit": 0.0,
+            "count": 0,
+        })
+        for txn in transactions:
+            cat = txn.get("category") or "OTHER"
+            b = buckets[cat]
+            b["debit"] += _parse_float(txn.get("debit"))
+            b["credit"] += _parse_float(txn.get("credit"))
+            b["count"] += 1
+
+        out: dict[str, dict] = {}
+        for cat, b in buckets.items():
+            pct_debit = (b["debit"] / total_debit * 100) if total_debit > 0 else 0.0
+            pct_credit = (b["credit"] / total_credit * 100) if total_credit > 0 else 0.0
+            out[cat] = {
+                "debit": round(b["debit"], 2),
+                "credit": round(b["credit"], 2),
+                "count": b["count"],
+                "pct_debit": round(pct_debit, 2),
+                "pct_credit": round(pct_credit, 2),
+            }
+        # Sort by total volume descending
+        return dict(sorted(out.items(), key=lambda kv: -(kv[1]["debit"] + kv[1]["credit"])))
+
+    @staticmethod
+    def _build_counterparty_summary(transactions: list[dict]) -> list[dict]:
+        """Top 20 counterparties by total volume, with frequency and type."""
+        buckets: dict[str, dict] = defaultdict(lambda: {
+            "total_debit": 0.0,
+            "total_credit": 0.0,
+            "count": 0,
+            "type": "UNKNOWN",
+        })
+        for txn in transactions:
+            cp = txn.get("counterparty") or {}
+            name = (cp.get("name") or "").strip()
+            if not name:
+                continue
+            b = buckets[name]
+            b["total_debit"] += _parse_float(txn.get("debit"))
+            b["total_credit"] += _parse_float(txn.get("credit"))
+            b["count"] += 1
+            b["type"] = cp.get("type") or b["type"]
+
+        ranked = sorted(
+            buckets.items(),
+            key=lambda kv: -(kv[1]["total_debit"] + kv[1]["total_credit"]),
+        )[:20]
+
+        return [
+            {
+                "name": name,
+                "total_debit": round(b["total_debit"], 2),
+                "total_credit": round(b["total_credit"], 2),
+                "count": b["count"],
+                "type": b["type"],
+            }
+            for name, b in ranked
+        ]
