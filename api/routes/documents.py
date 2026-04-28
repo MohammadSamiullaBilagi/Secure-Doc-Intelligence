@@ -171,15 +171,21 @@ async def upload_document(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Database err: {e}")
 
-    # 2. Extract and embed text synchronously in the pipeline
+    # 2. Extract and embed text in a thread — both steps make blocking I/O calls
+    #    (PyMuPDF for extraction, OpenAI embeddings API for vector store creation).
+    #    Running them on the event loop would block all concurrent requests including login.
     processor = DocumentProcessor(data_dir=str(data_dir), db_dir=str(db_dir))
-    docs = processor.extract_text_from_pdfs()
 
-    if docs:
-        try:
+    def _ingest():
+        docs = processor.extract_text_from_pdfs()
+        if docs:
             processor.create_vector_store(docs)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Vector store creation failed: {e}. Please retry the upload.")
+        return docs
+
+    try:
+        docs = await asyncio.to_thread(_ingest)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Vector store creation failed: {e}. Please retry the upload.")
 
     # 3. Trigger LangGraph via background task so API responds instantly.
     # Pass the pre-generated UUID thread_id so each run is isolated in the checkpointer.

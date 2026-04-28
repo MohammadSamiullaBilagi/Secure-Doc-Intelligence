@@ -71,14 +71,23 @@ class WatcherService:
             # Stage 3: Running audit — run in thread pool so the async event loop is not blocked
             update_audit_status(thread_id, "researching", f"Researcher: Scanning {filename} for compliance checks...", 40)
 
-            final_state = await asyncio.to_thread(
-                orchestrator.run_blueprint_audit,
-                target_contract=filename,
-                blueprint=blueprint,
-                session_hash=session_hash,
-                user_id=user_id or session_hash,
-                thread_id=thread_id,
-            )
+            try:
+                final_state = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        orchestrator.run_blueprint_audit,
+                        target_contract=filename,
+                        blueprint=blueprint,
+                        session_hash=session_hash,
+                        user_id=user_id or session_hash,
+                        thread_id=thread_id,
+                    ),
+                    timeout=600,  # 10-minute hard cap — prevents hung Gemini calls from stalling forever
+                )
+            except asyncio.TimeoutError:
+                update_audit_status(thread_id, "error", "Audit timed out (>10 min). Please retry.", 0)
+                logger.error(f"WATCHER: Audit timed out for {filename} (thread {thread_id})")
+                await WatcherService._mark_job_error(thread_id)
+                return
 
             # Stage 4: Persist compliance results back to AuditJob for dashboard/client linkage
             await WatcherService._store_audit_results(
@@ -94,6 +103,23 @@ class WatcherService:
         except Exception as e:
             update_audit_status(thread_id, "error", f"Audit failed: {str(e)}", 0)
             logger.error(f"Watcher background task failed for {filename}: {e}")
+
+    @staticmethod
+    async def _mark_job_error(thread_id: str):
+        """Mark the AuditJob as 'error' when the audit times out or fails unrecoverably."""
+        try:
+            from db.database import AsyncSessionLocal
+            from db.models.core import AuditJob
+            from sqlalchemy import select
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(AuditJob).where(AuditJob.langgraph_thread_id == thread_id)
+                )
+                for job in result.scalars().all():
+                    job.status = "error"
+                await session.commit()
+        except Exception as e:
+            logger.error(f"WATCHER: Failed to mark job error for {thread_id}: {e}")
 
     @staticmethod
     async def _store_audit_results(thread_id: str, final_state: dict, blueprint_name: str | None):

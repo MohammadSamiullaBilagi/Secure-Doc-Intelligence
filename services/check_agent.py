@@ -72,15 +72,18 @@ class CheckAgentService:
         ])
 
         try:
-            response = (prompt | self.llm).invoke({
-                "doc_json": json.dumps(parsed_doc, separators=(',', ':'), default=str),
-                "check_id": check.check_id,
-                "focus": check.focus,
-                "rule": check.rule,
-                "ref_source": reference.source_name,
-                "ref_confidence": reference.confidence,
-                "ref_rules": reference.extracted_rules,
-            })
+            response = await asyncio.wait_for(
+                (prompt | self.llm).ainvoke({
+                    "doc_json": json.dumps(parsed_doc, separators=(',', ':'), default=str),
+                    "check_id": check.check_id,
+                    "focus": check.focus,
+                    "rule": check.rule,
+                    "ref_source": reference.source_name,
+                    "ref_confidence": reference.confidence,
+                    "ref_rules": reference.extracted_rules,
+                }),
+                timeout=90,
+            )
 
             content = response.content.strip()
             # Strip markdown code fences if present
