@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import operator
+import threading
 import sqlite3
 from typing import TypedDict, Annotated, Dict, List, Any
 from pydantic import BaseModel, Field
@@ -16,16 +18,30 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Module-level singleton for the checkpointer to avoid connection leaks.
-# Each call to get_compiled_graph() was opening new PostgreSQL connections
-# that were never closed, exhausting Cloud SQL's connection slots.
+# Module-level singleton for the checkpointer.
+# - SQLite: a single connection wrapped by SqliteSaver. Concurrent writers are
+#   serialized by SQLite itself; we add busy_timeout + WAL so they wait instead
+#   of failing or hanging forever, and a process-wide AUDIT_LOCK so we never
+#   issue overlapping writes through the same connection (which is unsafe).
+# - PostgreSQL: a psycopg ConnectionPool so concurrent audits each get their
+#   own connection from the pool — no single-connection bottleneck.
 _checkpointer = None
-_checkpointer_lock = __import__("threading").Lock()
+_checkpointer_lock = threading.Lock()
+_pg_pool = None  # kept alive for the lifetime of the process
+
+# Serializes graph.invoke()/update_state() calls when on SQLite. PostgreSQL
+# handles concurrency at the connection-pool level and does not need this lock.
+AUDIT_LOCK: asyncio.Lock = asyncio.Lock()
 
 
 def _get_checkpointer():
-    """Return a singleton checkpointer (SqliteSaver or PostgresSaver)."""
-    global _checkpointer
+    """Return a singleton checkpointer (SqliteSaver or PostgresSaver).
+
+    SQLite path: opens with timeout=30s, journal_mode=WAL, busy_timeout=30s.
+    Postgres path: backed by a ConnectionPool (min 2, max 10) so concurrent
+    audits do not contend on a single TCP connection.
+    """
+    global _checkpointer, _pg_pool
     if _checkpointer is not None:
         return _checkpointer
 
@@ -34,14 +50,27 @@ def _get_checkpointer():
             return _checkpointer
 
         if settings.is_sqlite:
-            import sqlite3
             db_path = Path(settings.checkpointer_db_path).resolve()
             db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            conn = sqlite3.connect(
+                str(db_path),
+                check_same_thread=False,
+                timeout=30.0,  # wait up to 30s for the writer lock instead of erroring
+            )
+            try:
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA busy_timeout=30000;")
+                conn.execute("PRAGMA synchronous=NORMAL;")
+            except Exception as e:
+                logger.warning(f"Checkpointer PRAGMA setup failed (non-fatal): {e}")
             _checkpointer = SqliteSaver(conn)
         else:
             from langgraph.checkpoint.postgres import PostgresSaver
             import psycopg
+            try:
+                from psycopg_pool import ConnectionPool
+            except ImportError:
+                ConnectionPool = None
 
             db_url = settings.sync_database_url
             # Setup requires autocommit because CREATE INDEX CONCURRENTLY
@@ -55,11 +84,35 @@ def _get_checkpointer():
             except Exception as e:
                 logger.warning(f"Checkpointer setup (may already exist): {e}")
 
-            conn = psycopg.connect(db_url)
-            _checkpointer = PostgresSaver(conn)
+            if ConnectionPool is not None:
+                _pg_pool = ConnectionPool(
+                    conninfo=db_url,
+                    min_size=2,
+                    max_size=10,
+                    kwargs={"autocommit": True},
+                    open=True,
+                )
+                _checkpointer = PostgresSaver(_pg_pool)
+                logger.info("Checkpointer using psycopg ConnectionPool (min=2, max=10).")
+            else:
+                logger.warning(
+                    "psycopg_pool not installed — falling back to single connection. "
+                    "Install with: uv add psycopg_pool"
+                )
+                conn = psycopg.connect(db_url, autocommit=True)
+                _checkpointer = PostgresSaver(conn)
 
         logger.info(f"Checkpointer initialized: {type(_checkpointer).__name__}")
         return _checkpointer
+
+
+def warm_checkpointer():
+    """Eagerly initialize the checkpointer on app startup so the first audit
+    doesn't pay the WAL/PRAGMA/setup cost. Safe to call multiple times."""
+    try:
+        _get_checkpointer()
+    except Exception as e:
+        logger.warning(f"warm_checkpointer failed (non-fatal): {e}")
 
 
 class MultiAgentState(TypedDict):

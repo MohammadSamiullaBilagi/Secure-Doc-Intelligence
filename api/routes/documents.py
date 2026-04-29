@@ -18,6 +18,7 @@ from db.models.clients import Client, ClientDocument
 from ingestion import DocumentProcessor
 from services.watcher_service import WatcherService
 from services.credits_service import CreditsService
+from services.concurrency import get_ingestion_lock
 from services.audit_log_service import log_audit_event, extract_request_meta
 from services.legal_content import get_ai_processing_disclosure
 from api.rate_limit import limiter
@@ -182,8 +183,13 @@ async def upload_document(
             processor.create_vector_store(docs)
         return docs
 
+    # Per-user lock so concurrent uploads from the SAME user serialize their
+    # ChromaDB writes (concurrent writes corrupt the index). Different users
+    # remain fully parallel.
+    user_ingest_lock = await get_ingestion_lock(str(current_user.id))
     try:
-        docs = await asyncio.to_thread(_ingest)
+        async with user_ingest_lock:
+            docs = await asyncio.to_thread(_ingest)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Vector store creation failed: {e}. Please retry the upload.")
 

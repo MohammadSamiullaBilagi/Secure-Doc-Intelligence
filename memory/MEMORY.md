@@ -25,6 +25,21 @@
 - **Phase 6**: 3-Layer Agentic Audit Pipeline — DocumentParser (Haiku L1), parallel CheckAgentService (Haiku L2), Sonnet L3 reports. Ground truth ReferenceService with DB cache. FinancialImpact tracking + confidence levels.
 - **Phase 6.5**: Free trial access model (all features credit-gated), CSV/Excel tabular exports for all 6 analysis features, GSTR-9 PDF report, rate limiting, feedback system
 - **Phase 7**: Production readiness — security hardening (SECRET_KEY validation, CORS fix, webhook secret mandatory, global exception handler), GCP deployment setup (Cloud Run + Cloud SQL + GCS), SQLite→PostgreSQL migration script, `.env.production` template
+- **Phase 12**: Concurrency hardening — fixes "second scan hangs / login network error" bug
+  - `services/concurrency.py` exposes `AUDIT_EXECUTOR` (4 workers), `AUDIT_SEMAPHORE` (4 permits), and per-user ingestion locks via `get_ingestion_lock(user_id)`
+  - `multi_agent.py`: SQLite checkpointer now uses `timeout=30s + WAL + busy_timeout=30000`; PostgreSQL path uses `psycopg_pool.ConnectionPool(min=2,max=10)`; module-level `AUDIT_LOCK` serializes graph.invoke() on SQLite; `warm_checkpointer()` called from startup
+  - `main.py` startup: default executor expanded to 32 workers (so bcrypt/login is never starved by audits/ingestion); checkpointer warm-up added to cold-start sequence
+  - `services/watcher_service.py`: audits run on `AUDIT_EXECUTOR` via `loop.run_in_executor`, gated by `AUDIT_SEMAPHORE` and `AUDIT_LOCK`
+  - `api/routes/documents.py`: per-user ingestion lock prevents concurrent ChromaDB writes for the same user (different users still parallel)
+  - New dependency: `psycopg-pool>=3.2.0`
+- **Phase 11**: Blueprints CRUD + cold-start warm-up + export file download
+  - `GET /api/v1/blueprints/{id}` — full detail incl. checks[] (system or own)
+  - `PATCH /api/v1/blueprints/{id}` — UpdateBlueprintRequest, user-owned only, 403 on system bp, no credits
+  - `GET /api/v1/account/data-export` — now returns `Response` with `Content-Disposition: attachment` (downloads as JSON file, not inline JSON body)
+  - Cold-start warm-up in `main.py` startup_event: pre-heats DB pool, pre-instantiates Gemini light LLM, heartbeats ChromaDB
+  - `services/auth_service.verify_password_async()` — wraps bcrypt in `asyncio.to_thread` to avoid blocking event loop on first login
+  - `DELETE /api/v1/account/data` requires body `{"confirm": true}` (returns 400 otherwise) — no backend change, just documented for frontend
+  - `POST /api/v1/blueprints/{id}/clone` — creates user-owned copy of any accessible blueprint (system or own). Free. Used by frontend Clone-to-Edit flow so users can customize system blueprints without affecting other users.
 
 ## Critical Rules
 - **Free trial users get ALL features** — access is credit-gated (75 credits), not plan-gated. `require_starter/professional/enterprise` all allow free_trial with credits > 0

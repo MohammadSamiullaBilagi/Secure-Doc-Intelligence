@@ -2,7 +2,8 @@ import asyncio
 import logging
 from pathlib import Path
 from services.blueprint_service import BlueprintService
-from multi_agent import ComplianceOrchestrator
+from services.concurrency import AUDIT_EXECUTOR, AUDIT_SEMAPHORE
+from multi_agent import ComplianceOrchestrator, AUDIT_LOCK
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -71,18 +72,27 @@ class WatcherService:
             # Stage 3: Running audit — run in thread pool so the async event loop is not blocked
             update_audit_status(thread_id, "researching", f"Researcher: Scanning {filename} for compliance checks...", 40)
 
+            # Bound concurrent audits + run on dedicated executor so a stuck
+            # audit cannot starve auth/upload threads. AUDIT_LOCK serializes
+            # writes through the SQLite checkpointer (no-op effective cost on
+            # PostgreSQL since the pool handles concurrency at a lower level).
+            loop = asyncio.get_running_loop()
             try:
-                final_state = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        orchestrator.run_blueprint_audit,
-                        target_contract=filename,
-                        blueprint=blueprint,
-                        session_hash=session_hash,
-                        user_id=user_id or session_hash,
-                        thread_id=thread_id,
-                    ),
-                    timeout=600,  # 10-minute hard cap — prevents hung Gemini calls from stalling forever
-                )
+                async with AUDIT_SEMAPHORE:
+                    async with AUDIT_LOCK:
+                        final_state = await asyncio.wait_for(
+                            loop.run_in_executor(
+                                AUDIT_EXECUTOR,
+                                lambda: orchestrator.run_blueprint_audit(
+                                    target_contract=filename,
+                                    blueprint=blueprint,
+                                    session_hash=session_hash,
+                                    user_id=user_id or session_hash,
+                                    thread_id=thread_id,
+                                ),
+                            ),
+                            timeout=600,  # 10-minute hard cap — prevents hung Gemini calls from stalling forever
+                        )
             except asyncio.TimeoutError:
                 update_audit_status(thread_id, "error", "Audit timed out (>10 min). Please retry.", 0)
                 logger.error(f"WATCHER: Audit timed out for {filename} (thread {thread_id})")

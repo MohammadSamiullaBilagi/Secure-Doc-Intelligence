@@ -1,0 +1,60 @@
+# Controls what `gcloud run deploy --source .` uploads to Cloud Build.
+# This is separate from .dockerignore: .gcloudignore filters the upload,
+# .dockerignore filters the build context inside the container build.
+# Keep them in sync.
+
+# Secrets — never upload to Cloud Build
+.env
+.env.production
+.env.local
+env_vars.yaml
+
+# Local databases & user data
+*.db
+*.sqlite3
+Database/
+micro_saas.db*
+user_sessions/
+global_vector_db/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Tests & generated artifacts
+test_*
+create_test_*
+test_documents/
+expected_answers.md
+*.pdf
+generate_resume_pdf.py
+resume_updated.html
+
+# Docs & memory (not needed in image)
+*.md
+!README.md
+Issues/
+memory/
+.claude/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+tools/pdf_redactor/dist/
+tools/pdf_redactor/build/

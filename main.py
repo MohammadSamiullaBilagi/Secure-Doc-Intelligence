@@ -1,6 +1,8 @@
 import os
 import sys
+import asyncio
 import uuid as _uuid
+from concurrent.futures import ThreadPoolExecutor
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -266,6 +268,42 @@ async def startup_event():
         logger.info("Background TTL Scheduler verified.")
     except Exception as e:
         logger.error(f"Error starting background sweeps: {e}")
+
+    # Concurrency hardening: bigger default executor so bcrypt (login),
+    # document ingestion, and any other asyncio.to_thread() callers don't
+    # fight over the default 4-worker pool. The dedicated AUDIT_EXECUTOR and
+    # AUDIT_SEMAPHORE live in services.concurrency so any module can use
+    # them without depending on app.state.
+    try:
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            ThreadPoolExecutor(max_workers=32, thread_name_prefix="default")
+        )
+        from services.concurrency import AUDIT_EXECUTOR, AUDIT_SEMAPHORE  # noqa: F401
+        logger.info(
+            f"Thread pools configured: default=32, audit={AUDIT_EXECUTOR._max_workers}."
+        )
+    except Exception as e:
+        logger.error(f"Failed to configure thread pools: {e}")
+
+    # Cold-start warm-up: pre-initialize DB pool, LLM clients, and ChromaDB so the
+    # FIRST user request (typically login) doesn't pay the full cold-start cost.
+    try:
+        # Warm DB pool — acquire+release a connection so TCP+TLS handshake is done
+        async with AsyncSessionLocal() as session:
+            await session.execute(sa.text("SELECT 1"))
+        # Pre-import LLM config to initialize Gemini/OpenAI client stubs
+        from services import llm_config  # noqa: F401
+        _ = llm_config.get_light_llm()  # lazy client instantiation
+        # Warm ChromaDB client heartbeat
+        import chromadb
+        chromadb.PersistentClient(path=settings.GLOBAL_DB_DIR).heartbeat()
+        # Warm LangGraph checkpointer (WAL + PRAGMAs / Postgres pool setup)
+        from multi_agent import warm_checkpointer
+        warm_checkpointer()
+        logger.info("Cold-start warm-up complete (DB pool + LLM + ChromaDB + checkpointer).")
+    except Exception as e:
+        logger.warning(f"Cold-start warm-up partial/failed (non-fatal): {e}")
 
 
 @app.options("/{rest_of_path:path}")

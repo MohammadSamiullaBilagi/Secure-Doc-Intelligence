@@ -1,0 +1,51 @@
+# Databases
+*.db
+*.sqlite3
+Database/checkpointer.db
+micro_saas.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Environment
+.env
+.env.production
+
+# User data (mounted as volumes in production)
+user_sessions/
+global_vector_db/
+
+# Test files
+test_*
+create_test_*
+expected_answers.md
+
+# Generated PDFs
+*.pdf
+
+# Documentation & planning
+*.txt
+*.md
+!pyproject.toml
+!alembic.ini
+Issues/
+memory/
+.claude/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Lovable frontend folder
+lovable folder/
