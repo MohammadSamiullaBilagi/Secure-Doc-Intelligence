@@ -10,9 +10,14 @@
 env_vars.yaml
 
 # Local databases & user data
+# NOTE: Database/ holds Python source (database.py, models.py) — keep the
+# directory, only exclude the SQLite files inside it.
 *.db
 *.sqlite3
-Database/
+*.db-shm
+*.db-wal
+Database/checkpointer.db*
+Database/__pycache__/
 micro_saas.db*
 user_sessions/
 global_vector_db/
